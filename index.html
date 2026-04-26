@@ -1538,35 +1538,49 @@ function googleBtnHTML(){
 
 async function handleGoogleUser(user){
   if(!user)return false;
-  // Always sync from Firebase first to get latest player list
-  await syncFromSheets().catch(()=>{});
   const email=(user.email||'').toLowerCase();
   const displayName=user.displayName||email.split('@')[0];
 
-  // Match player: 1) googleUid 2) email in Firebase
+  // ── ADMIN EMAIL CHECK FIRST — before any Firebase sync ──
+  // This guarantees admin can always log in even if Firebase is empty
+  const isAdminEmail=ADMIN_EMAIL&&email===ADMIN_EMAIL.toLowerCase();
+  if(isAdminEmail){
+    // Sync Firebase in background after login
+    syncFromSheets().catch(()=>{});
+    // Find or create admin player
+    let adminPlayer=S.players.find(p=>
+      p.googleUid===user.uid||
+      (p.email||'').toLowerCase()===email||
+      getAdminNames().has(p.name.toLowerCase())
+    );
+    if(!adminPlayer){
+      adminPlayer={
+        id:'p_admin_'+Date.now(),
+        name:displayName,email,phone:'',nickname:'',pin:'',
+        color:'#00e5a0',userId:'',photoBase64:null,
+        status:'approved',googleUid:user.uid
+      };
+      S.players.push(adminPlayer);
+    } else {
+      adminPlayer.status='approved';
+      if(!adminPlayer.googleUid) adminPlayer.googleUid=user.uid;
+      if(!adminPlayer.email) adminPlayer.email=email;
+    }
+    if(!S.adminNames)S.adminNames=[];
+    const aname=adminPlayer.name.toLowerCase();
+    if(!S.adminNames.includes(aname)) S.adminNames.push(aname);
+    save();
+    ghWriteAll().catch(()=>{});
+    doLogin(adminPlayer.name, email);
+    return true;
+  }
+
+  // For non-admin users — sync Firebase first to get player list
+  await syncFromSheets().catch(()=>{});
+
+  // Match player: 1) googleUid 2) email
   let player=S.players.find(p=>p.googleUid===user.uid);
   if(!player) player=S.players.find(p=>(p.email||'').toLowerCase()===email);
-
-  // Admin email bypass — always gets access even if not in Firebase yet
-  const isAdminEmail=ADMIN_EMAIL&&email===ADMIN_EMAIL.toLowerCase();
-  if(!player&&isAdminEmail){
-    // Create admin player record on first login
-    const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'];
-    player={
-      id:'p_admin_'+Date.now(),
-      name:displayName,
-      email:email,
-      phone:'',nickname:'',pin:'',
-      color:cols[0],userId:'',
-      photoBase64:null,status:'approved',
-      googleUid:user.uid
-    };
-    S.players.push(player);
-    if(!S.adminNames)S.adminNames=[];
-    S.adminNames.push(displayName.toLowerCase());
-    save();
-    await ghWriteAll().catch(()=>{});
-  }
 
   if(player){
     if(player.status==='pending'){
