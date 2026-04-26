@@ -1054,22 +1054,16 @@ async function waitForFirebase(timeoutMs=15000){
 
 async function jsonbinRead(forceRefresh=false){
   const ready=await waitForFirebase();
-  if(!ready){_ghLastError='Firebase not ready';return null;}
+  if(!ready){_ghLastError='Firebase not ready';return _cachedData||null;}
   try{
-    const snap=await window._fbGet(window._fbRef(window._fbDb,'shuttleLeague'));
-    if(!snap.exists()){
-      // Empty database — return empty structure
-      return{players:[],games:[],corrections:[]};
-    }
+    const snap=await window._fbDb.ref('shuttleLeague').once('value');
+    if(!snap.exists())return{players:[],games:[],corrections:[]};
     const data=snap.val();
-    _cachedData=data;
-    _lastFetchTime=Date.now();
-    _ghLastError='';
+    _cachedData=data;_lastFetchTime=Date.now();_ghLastError='';
     return data;
   }catch(e){
     _ghLastError='Firebase read error: '+e.message;
-    if(_cachedData)return _cachedData;
-    return null;
+    return _cachedData||null;
   }
 }
 
@@ -1077,9 +1071,8 @@ async function jsonbinWrite(data){
   const ready=await waitForFirebase();
   if(!ready)return{success:false,error:'Firebase not ready'};
   try{
-    await window._fbSet(window._fbRef(window._fbDb,'shuttleLeague'),data);
-    _cachedData=data;
-    _lastFetchTime=Date.now();
+    await window._fbDb.ref('shuttleLeague').set(data);
+    _cachedData=data;_lastFetchTime=Date.now();
     return{success:true};
   }catch(e){
     return{success:false,error:'Firebase write error: '+e.message};
@@ -1087,45 +1080,36 @@ async function jsonbinWrite(data){
 }
 
 // Subscribe to real-time updates from Firebase
+// This is the PRIMARY data source — fires immediately with current data
 function subscribeToFirebase(){
   if(!window._fbDb||_fbListener)return;
-  const dbRef=window._fbRef(window._fbDb,'shuttleLeague');
-  _fbListener=window._fbOnValue(dbRef,snap=>{
+  const dbRef=window._fbDb.ref('shuttleLeague');
+  _fbListener=dbRef.on('value',snap=>{
     if(!snap.exists())return;
     const data=snap.val();
     if(!data)return;
-    // Update local state from Firebase in real time
+
+    // Apply data
     if(Array.isArray(data.players)&&data.players.length){
       const deletedIds=new Set(S.deletedPlayerIds||[]);
       S.players=data.players.filter(p=>p&&p.id&&!deletedIds.has(p.id))
-        .map(p=>{
-          const local=S.players.find(x=>x.id===p.id);
-          return{...p,photoBase64:local?.photoBase64||null};
-        });
+        .map(p=>{const local=S.players.find(x=>x.id===p.id);return{...p,photoBase64:local?.photoBase64||null};});
       ensureAdminExists();
     }
     if(Array.isArray(data.games))S.games=data.games;
     if(Array.isArray(data.corrections))S.corrections=data.corrections;
-    save();
-    updateBadge();
-    // Re-render current page silently
-    const activePage=document.querySelector('.page.active');
-    if(activePage){
-      const pid=activePage.id.replace('page-','');
-      if(pid==='history')renderHistory();
-      else if(pid==='leaderboard')renderLeaderboard('today');
-      else if(pid==='players')renderPlayers();
-      else if(pid==='admin'&&isAdmin())renderAdmin();
-      else if(pid==='addGame')renderSessionGames();
-      else if(pid==='corrections')renderCorrections();
-    }
-    renderDashboard();
+    save();updateBadge();
+
+    // Re-render all pages with fresh data
+    renderDashboard();renderHistory();renderLeaderboard('today');
+    renderPlayers();renderCorrections();populateHF();
+    if(isAdmin())renderAdmin();
   });
 }
 
 function unsubscribeFromFirebase(){
-  if(_fbListener&&window._fbDb){
-    window._fbOff(window._fbRef(window._fbDb,'shuttleLeague'),_fbListener);
+  if(window._fbDb){
+    window._fbDb.ref('shuttleLeague').off('value');
     _fbListener=null;
   }
 }
@@ -1919,32 +1903,20 @@ async function initApp(){
   }
   document.getElementById('loginPage').style.display='none';
 
-  // Wait for Firebase and load data
   document.getElementById('mainApp').style.display='block';
-  if(isDbConnected()){
-    loading(true,'Loading data…');
-    // Wait for Firebase to be ready (important on mobile after redirect)
-    const ready=await waitForFirebase(10000);
-    if(ready){
-      // Subscribe to real-time updates first
-      subscribeToFirebase();
-      // Then do an immediate read to populate data
-      const data=await jsonbinRead(true).catch(()=>null);
-      if(data){
-        // Apply data directly
-        if(Array.isArray(data.players)&&data.players.length){
-          const deletedIds=new Set(S.deletedPlayerIds||[]);
-          S.players=data.players.filter(p=>p&&p.id&&!deletedIds.has(p.id))
-            .map(p=>{const local=S.players.find(x=>x.id===p.id);return{...p,photoBase64:local?.photoBase64||null};});
-          ensureAdminExists();
-        }
-        if(Array.isArray(data.games)&&data.games.length)S.games=data.games;
-        if(Array.isArray(data.corrections)&&data.corrections.length)S.corrections=data.corrections;
-        save();
-      }
-    }
+  loading(true,'Loading data…');
+  // Wait for Firebase then subscribe — listener fires immediately with all data
+  waitForFirebase(10000).then(ready=>{
     loading(false);
-  }
+    if(ready){
+      subscribeToFirebase(); // This fires onValue immediately with current DB data
+    } else {
+      // Firebase not available — render with local data
+      renderDashboard();renderHistory();renderLeaderboard('today');
+      renderPlayers();renderCorrections();populateHF();
+      if(isAdmin())renderAdmin();
+    }
+  });
   const u=S.currentUser;
   // Show nickname in header if available
   const hp=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
@@ -1968,28 +1940,7 @@ async function initApp(){
   renderDashboard();renderLeaderboard('today');renderHistory();renderPlayers();renderCorrections();
   if(isAdmin())renderAdmin();populateHF();
 
-  // On mobile, Firebase data may arrive after initial render — re-render when ready
-  if(isDbConnected()){
-    setTimeout(async()=>{
-      const data=await jsonbinRead(true).catch(()=>null);
-      if(data){
-        let changed=false;
-        if(Array.isArray(data.players)&&data.players.length>S.players.length){
-          const del=new Set(S.deletedPlayerIds||[]);
-          S.players=data.players.filter(p=>p&&p.id&&!del.has(p.id))
-            .map(p=>{const lp=S.players.find(x=>x.id===p.id);return{...p,photoBase64:lp?.photoBase64||null};});
-          ensureAdminExists();changed=true;
-        }
-        if(Array.isArray(data.games)&&data.games.length>S.games.length){S.games=data.games;changed=true;}
-        if(Array.isArray(data.corrections)&&data.corrections.length>S.corrections.length){S.corrections=data.corrections;changed=true;}
-        if(changed){
-          save();
-          renderDashboard();renderLeaderboard('today');renderHistory();renderPlayers();renderCorrections();
-          if(isAdmin())renderAdmin();populateHF();updateBadge();
-        }
-      }
-    },2000); // retry after 2s to catch late Firebase loads on mobile
-  }
+
 }
 
 // ============================================================
