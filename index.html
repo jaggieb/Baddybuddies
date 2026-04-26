@@ -1031,11 +1031,11 @@ let _fbListener=null;
 let _lastFetchTime=0;
 let _cachedData=null;
 
-async function waitForFirebase(){
+async function waitForFirebase(timeoutMs=10000){
   if(window._fbDb)return true;
   return new Promise(resolve=>{
     document.addEventListener('firebaseReady',()=>resolve(true),{once:true});
-    setTimeout(()=>resolve(false),5000);
+    setTimeout(()=>resolve(false),timeoutMs);
   });
 }
 
@@ -1865,15 +1865,32 @@ async function initApp(){
   }
   document.getElementById('loginPage').style.display='none';
 
-  // Load latest data from Firebase before rendering
-  if(window._fbDb){
-    loading(true,'Loading data…');
-    await syncFromSheets().catch(()=>{});
-    loading(false);
-    subscribeToFirebase();
-  }
-
+  // Wait for Firebase and load data
   document.getElementById('mainApp').style.display='block';
+  if(isDbConnected()){
+    loading(true,'Loading data…');
+    // Wait for Firebase to be ready (important on mobile after redirect)
+    const ready=await waitForFirebase(10000);
+    if(ready){
+      // Subscribe to real-time updates first
+      subscribeToFirebase();
+      // Then do an immediate read to populate data
+      const data=await jsonbinRead(true).catch(()=>null);
+      if(data){
+        // Apply data directly
+        if(Array.isArray(data.players)&&data.players.length){
+          const deletedIds=new Set(S.deletedPlayerIds||[]);
+          S.players=data.players.filter(p=>p&&p.id&&!deletedIds.has(p.id))
+            .map(p=>{const local=S.players.find(x=>x.id===p.id);return{...p,photoBase64:local?.photoBase64||null};});
+          ensureAdminExists();
+        }
+        if(Array.isArray(data.games)&&data.games.length)S.games=data.games;
+        if(Array.isArray(data.corrections)&&data.corrections.length)S.corrections=data.corrections;
+        save();
+      }
+    }
+    loading(false);
+  }
   const u=S.currentUser;
   // Show nickname in header if available
   const hp=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
@@ -1892,8 +1909,7 @@ async function initApp(){
   const bnadmin=document.getElementById('bn-admin');
   if(bnadmin)bnadmin.style.display=isAdmin()?'':'none';
   updateBadge();
-  // Try to sync from GitHub
-  if(isDbConnected()) syncFromSheets().catch(()=>{}); // background sync
+
   initForm();initSets();
   renderDashboard();renderLeaderboard('today');renderHistory();renderPlayers();renderCorrections();
   if(isAdmin())renderAdmin();populateHF();
