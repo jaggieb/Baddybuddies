@@ -1558,6 +1558,130 @@ function promptSetPin(pid){
 }
 
 
+// ============================================================
+// GOOGLE SIGN-IN
+// ============================================================
+function googleBtnHTML(){
+  return '<svg width="18" height="18" viewBox="0 0 18 18"><path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/><path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/><path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/><path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/></svg> Continue with Google';
+}
+
+async function signInWithGoogle(){
+  const btn=document.getElementById('googleSignInBtn');
+  if(btn){btn.disabled=true;btn.textContent='Signing in...';}
+  const errEl=document.getElementById('loginError');
+  if(errEl)errEl.textContent='';
+  try{
+    const ready=await waitForFirebase(10000);
+    if(!ready){
+      if(errEl)errEl.textContent='Firebase not ready. Please refresh and try again.';
+      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+      return;
+    }
+    let result=null;
+    try{
+      result=await window._fbAuth.signInWithPopup(window._fbGoogleProvider);
+    }catch(popupErr){
+      if(popupErr.code==='auth/popup-blocked'||popupErr.code==='auth/popup-closed-by-user'){
+        if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+        if(popupErr.code==='auth/popup-closed-by-user')return;
+        // Popup blocked — use redirect
+        localStorage.setItem('googleRedirectPending','1');
+        await window._fbAuth.signInWithRedirect(window._fbGoogleProvider);
+        return;
+      }
+      throw popupErr;
+    }
+    if(result&&result.user){
+      await handleGoogleUser(result.user);
+    }
+  }catch(e){
+    console.error('Google sign-in error:',e);
+    if(errEl)errEl.textContent=e.code==='auth/popup-blocked'?
+      'Popup blocked. Allow popups for this site and try again.':
+      'Sign-in failed: '+e.message;
+    if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+  }
+}
+
+async function handleGoogleUser(user){
+  if(!user)return false;
+  const email=(user.email||'').toLowerCase();
+  const displayName=user.displayName||email.split('@')[0];
+  const isAdminEmail=ADMIN_EMAIL&&email===ADMIN_EMAIL.toLowerCase();
+
+  await syncFromSheets().catch(()=>{});
+
+  let player=S.players.find(p=>p.googleUid===user.uid);
+  if(!player) player=S.players.find(p=>(p.email||'').toLowerCase()===email);
+
+  if(!player&&isAdminEmail){
+    player={id:'p_admin_'+Date.now(),name:displayName,email,phone:'',nickname:'',pin:'',
+      color:'#00e5a0',userId:'',photoBase64:null,status:'approved',googleUid:user.uid};
+    S.players.push(player);
+    if(!S.adminNames)S.adminNames=[];
+    S.adminNames.push(displayName.toLowerCase());
+    save();ghWriteAll().catch(()=>{});
+  }
+
+  if(player){
+    if(isAdminEmail)player.status='approved';
+    if(player.status==='pending'){
+      const errEl=document.getElementById('loginError');
+      if(errEl)errEl.textContent='Your account is pending admin approval.';
+      const btn=document.getElementById('googleSignInBtn');
+      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+      await window._fbAuth.signOut().catch(()=>{});
+      return false;
+    }
+    let changed=false;
+    if(!player.googleUid){player.googleUid=user.uid;changed=true;}
+    if(!player.email){player.email=email;changed=true;}
+    if(isAdminEmail&&!S.adminNames.includes(player.name.toLowerCase())){
+      if(!S.adminNames)S.adminNames=[];
+      S.adminNames.push(player.name.toLowerCase());changed=true;
+    }
+    if(changed){save();ghWriteAll().catch(()=>{});}
+    doLogin(player.name,email);
+    return true;
+  }
+
+  // Email not in database
+  await window._fbAuth.signOut().catch(()=>{});
+  const errEl=document.getElementById('loginError');
+  if(errEl)errEl.innerHTML='Email <b>'+email+'</b> not registered.<br><small style="color:var(--text3)">Ask admin to add your email to your player profile.</small>';
+  const btn=document.getElementById('googleSignInBtn');
+  if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+  return false;
+}
+
+async function checkFirebaseAuthState(){
+  await waitForFirebase();
+  const redirectPending=localStorage.getItem('googleRedirectPending');
+  if(redirectPending){
+    localStorage.removeItem('googleRedirectPending');
+    try{
+      const result=await window._fbAuth.getRedirectResult();
+      if(result&&result.user){await handleGoogleUser(result.user);return;}
+    }catch(e){
+      console.warn('Redirect error:',e.message);
+      const errEl=document.getElementById('loginError');
+      if(errEl)errEl.textContent='Sign-in failed: '+e.message;
+    }
+  }
+  window._fbAuth.onAuthStateChanged(async(user)=>{
+    if(S.currentUser)return;
+    if(user){
+      const loginPage=document.getElementById('loginPage');
+      const isOnLogin=loginPage&&loginPage.style.display!=='none';
+      if(isOnLogin){
+        const st=document.getElementById('loginSyncStatus');
+        if(st)st.textContent='Signing in...';
+        await handleGoogleUser(user);
+      }
+    }
+  });
+}
+
 function doLogin(name, email){
   // ALWAYS use the stored player name as identity — never nickname
   // Nickname is display-only and must not affect lookup/matching
