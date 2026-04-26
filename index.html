@@ -404,38 +404,43 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 </div>
 
 <!-- LOGIN -->
-<div id="loginPage" style="padding:16px;">
-  <div class="login-wrap">
-    <div class="login-box">
-      <div style="font-size:52px;margin-bottom:14px;">🏸</div>
-      <div class="login-title">SHUTTLE LEAGUE</div>
-      <p class="login-sub">Enter your name to log in.<br>New here? Register below to join.</p>
-      <div id="dbDebugArea" style="display:none;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px;margin-top:8px;font-size:11px;color:var(--text2);word-break:break-all;"></div>
-
-      <!-- Recent users quick-select -->
-      <div id="savedUsersList" style="text-align:left;margin-bottom:8px;"></div>
-
-      <!-- PIN login form -->
-      <div style="display:flex;flex-direction:column;gap:10px;margin-top:4px;">
-        <input type="text" id="pinNameInput" placeholder="Your name…" autocomplete="off"
-          style="font-size:14px;" onkeydown="if(event.key==='Enter')pinLogin()"/>
-
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);cursor:pointer;user-select:none;">
-          <input type="checkbox" id="rememberMe" checked style="width:16px;height:16px;accent-color:var(--accent);cursor:pointer;"/>
-          Remember me on this device
-        </label>
-        <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="pinLogin()">Log In</button>
+<!-- LOGIN PAGE -->
+<div id="loginPage" style="min-height:100svh;display:flex;align-items:center;justify-content:center;padding:20px;">
+  <div style="width:100%;max-width:360px;">
+    <div style="text-align:center;margin-bottom:32px;">
+      <div style="font-size:52px;margin-bottom:8px;">🏸</div>
+      <div style="font-size:28px;font-weight:700;letter-spacing:-0.5px;">Baddy Buddies</div>
+      <p class="login-sub" style="margin-top:8px;">Sign in to track your games</p>
+    </div>
+    <div id="loginSyncStatus" style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:12px;min-height:16px;cursor:pointer;"></div>
+    <div class="card" style="display:flex;flex-direction:column;gap:12px;">
+      <!-- Google Sign-In -->
+      <button onclick="signInWithGoogle()" id="googleSignInBtn"
+        style="width:100%;display:flex;align-items:center;justify-content:center;gap:12px;background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:8px;padding:12px 16px;font-size:14px;font-weight:500;cursor:pointer;transition:box-shadow .2s;"
+        onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.2)'"
+        onmouseout="this.style.boxShadow='none'">
+        <svg width="18" height="18" viewBox="0 0 18 18">
+          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+          <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/>
+          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/>
+        </svg>
+        Continue with Google
+      </button>
+      <div style="display:flex;align-items:center;gap:10px;color:var(--text3);font-size:12px;">
+        <div style="flex:1;height:1px;background:var(--border);"></div>or<div style="flex:1;height:1px;background:var(--border);"></div>
       </div>
-      <div id="loginError" style="color:var(--danger);font-size:12px;margin-top:8px;min-height:18px;"></div>
-      <div class="divider">new player?</div>
-      <button class="btn btn-outline" style="width:100%;justify-content:center;" onclick="openSelfRegister()">📝 Register</button>
-      <div id="loginSyncStatus" style="margin-top:12px;font-size:11px;color:var(--text3);text-align:center;"></div>
-      <div style="margin-top:8px;font-size:10px;color:var(--text3);text-align:center;opacity:0.6;">First time? Register below to create your account.</div>
+      <!-- Name login fallback -->
+      <input type="text" id="pinNameInput" placeholder="Your name…" autocomplete="off"
+        style="font-size:16px;" onkeydown="if(event.key==='Enter')pinLogin()"/>
+      <button class="btn btn-primary" style="width:100%;justify-content:center;" onclick="pinLogin()">Log In with Name</button>
+      <div id="loginError" style="color:var(--danger);font-size:12px;min-height:16px;text-align:center;"></div>
+    </div>
+    <div style="text-align:center;margin-top:14px;font-size:11px;color:var(--text3);">
+      New player? <a href="#" onclick="openSelfRegister();return false;" style="color:var(--accent);">Register here</a>
     </div>
   </div>
 </div>
-
-<!-- SETUP (admin first-run) -->
 
 <!-- MAIN APP -->
 <div id="mainApp" style="display:none;">
@@ -1267,39 +1272,9 @@ async function sheetsLoadAll(){
   return await ghRead();
 }
 
-// ============================================================
-// HARDCODED PLAYERS
-// Add all your players here — they can log in immediately
-// without needing a database sync.
-// Format: {name, pin, role}
-// role: 'admin' or 'player'
-// pin: leave '' for no PIN (name-only login)
-// ============================================================
+// Players managed via Admin panel — no hardcoding needed
 const HARDCODED_PLAYERS = [
-  {name:'Jags',    pin:'', role:'admin'},
-  {name:'Abhi',    pin:'', role:'player'},
-  {name:'Amit',    pin:'', role:'player'},
-  {name:'Andy',    pin:'', role:'player'},
-  {name:'Anuj',    pin:'', role:'player'},
-  {name:'Arun',    pin:'', role:'player'},
-  {name:'Aseem',   pin:'', role:'player'},
-  {name:'Avinash', pin:'', role:'player'},
-  {name:'Avneesh', pin:'', role:'player'},
-  {name:'Jeetu',   pin:'', role:'player'},
-  {name:'Konal',   pin:'', role:'player'},
-  {name:'Lax',     pin:'', role:'player'},
-  {name:'Mani',    pin:'', role:'player'},
-  {name:'Muru',    pin:'', role:'player'},
-  {name:'Naren',   pin:'', role:'player'},
-  {name:'Nav',     pin:'', role:'player'},
-  {name:'Nihal',   pin:'', role:'player'},
-  {name:'Paul',    pin:'', role:'player'},
-  {name:'PT',      pin:'', role:'player'},
-  {name:'Rajiv',   pin:'', role:'player'},
-  {name:'Sandy',   pin:'', role:'player'},
-  {name:'Vin',     pin:'', role:'player'},
-  {name:'Viraf',   pin:'', role:'player'},
-  {name:'Vishy',   pin:'', role:'player'},
+  {name:'Jags', pin:'', role:'admin'}, // bootstrap admin only
 ];
 
 // ============================================================
@@ -1573,6 +1548,101 @@ async function saveNewPin(){
 }
 
 // Simple login — no extra approval checks, just set currentUser and go
+async function signInWithGoogle(){
+  const btn=document.getElementById('googleSignInBtn');
+  if(btn){btn.disabled=true;btn.textContent='Signing in…';}
+  try{
+    await waitForFirebase();
+    const result=await window._fbSignInWithPopup(window._fbAuth, window._fbGoogleProvider);
+    const user=result.user;
+    const email=user.email||'';
+    const displayName=user.displayName||email.split('@')[0];
+
+    // Sync from Firebase to get latest player list
+    await syncFromSheets().catch(()=>{});
+
+    // Check if this email matches a registered player
+    let player=S.players.find(p=>(p.email||'').toLowerCase()===email.toLowerCase());
+
+    if(!player){
+      // Check by name match
+      player=S.players.find(p=>
+        p.name.toLowerCase()===displayName.toLowerCase()||
+        p.nickname?.toLowerCase()===displayName.toLowerCase()
+      );
+    }
+
+    if(player){
+      if(player.status==='pending'){
+        document.getElementById('loginError').textContent='Your account is pending admin approval.';
+        await window._fbSignOut(window._fbAuth);
+        if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+        return;
+      }
+      // Link Google UID to player
+      if(!player.googleUid){
+        player.googleUid=user.uid;
+        player.email=email;
+        ghWriteAll().catch(()=>{});
+      }
+      doLogin(player.name, email);
+    } else {
+      // New Google user — create pending registration
+      const newPlayer={
+        id:'p_'+Date.now(),
+        name:displayName,
+        email:email,
+        phone:'',nickname:'',pin:'',
+        color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
+        userId:'',photoBase64:null,
+        status:'pending',
+        googleUid:user.uid
+      };
+      S.players.push(newPlayer);
+      save();
+      ghWriteAll().catch(()=>{});
+      await window._fbSignOut(window._fbAuth);
+      document.getElementById('loginError').textContent=
+        'Welcome '+displayName+'! Your registration is pending admin approval.';
+      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+    }
+  }catch(e){
+    console.error('Google sign-in error:',e);
+    document.getElementById('loginError').textContent=
+      e.code==='auth/popup-closed-by-user'?'Sign-in cancelled.':
+      e.code==='auth/popup-blocked'?'Popup blocked — allow popups for this site.':
+      'Sign-in failed: '+e.message;
+    if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+  }
+}
+
+function googleBtnHTML(){
+  return `<svg width="18" height="18" viewBox="0 0 18 18">
+    <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+    <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+    <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/>
+    <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"/>
+    </svg> Continue with Google`;
+}
+
+// Auto sign-in if Firebase auth session exists
+async function checkFirebaseAuthState(){
+  await waitForFirebase();
+  window._fbOnAuthStateChanged(window._fbAuth, async(user)=>{
+    if(user&&!S.currentUser){
+      // User was previously signed in — auto login
+      await syncFromSheets().catch(()=>{});
+      const player=S.players.find(p=>
+        (p.googleUid===user.uid)||
+        ((p.email||'').toLowerCase()===user.email?.toLowerCase())
+      );
+      if(player&&player.status==='approved'){
+        doLogin(player.name, user.email||'');
+      }
+    }
+  });
+}
+
 function doLogin(name, email){
   // Normalize: use the stored player name (preserves admin's chosen casing)
   // so 'jags', 'JAGS', 'Jags' all resolve to the same record
@@ -1645,6 +1715,7 @@ async function headerRefresh(){
 function logout(){
   stopAdminPoll();
   unsubscribeFromFirebase();
+  if(window._fbAuth) window._fbSignOut(window._fbAuth).catch(()=>{});
   S.currentUser=null;save();
   document.getElementById('mainApp').style.display='none';
   document.getElementById('bottomNav').style.display='none';
