@@ -1281,10 +1281,10 @@ async function sheetsLoadAll(){
   return await ghRead();
 }
 
-// Players managed via Admin panel — no hardcoding needed
-const HARDCODED_PLAYERS = [
-  {name:'Jags', pin:'', role:'admin'}, // bootstrap admin only
-];
+// No hardcoded players — all players managed via Firebase
+const HARDCODED_PLAYERS = [];
+// Admin email — this email always gets admin rights on first login
+const ADMIN_EMAIL = 'jaggieb@gmail.com';
 
 // ============================================================
 // ADMIN BOOTSTRAP
@@ -1293,61 +1293,11 @@ const ADMIN_NAME='jags';
 
 function ensureAdminExists(){
   if(!S.adminNames)S.adminNames=[];
-  // Normalise to lowercase, dedupe
   S.adminNames=[...new Set(S.adminNames.map(n=>n.toLowerCase().trim()).filter(Boolean))];
-
-  // Load hardcoded players — always ensure they exist in S.players
-  const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff','#ff9a3c','#46d9d9','#f06292','#aed581'];
-  (HARDCODED_PLAYERS||[]).forEach((hp,i)=>{
-    const nl=hp.name.toLowerCase();
-    // Add to adminNames if admin
-    if(hp.role==='admin'&&!S.adminNames.includes(nl)) S.adminNames.push(nl);
-    // Ensure player record exists
-    let p=S.players.find(x=>x.name.toLowerCase()===nl);
-    if(!p){
-      p={id:'p_hc_'+nl.replace(/\s+/g,'_'),
-         name:hp.name,email:'',phone:'',nickname:'',
-         pin:String(hp.pin||'').trim(),pinIsTemp:false,
-         color:cols[i%cols.length],userId:'u_hc_'+nl.replace(/\s+/g,'_'),
-         photoBase64:null,status:'approved'};
-      S.players.push(p);
-    } else {
-      // Update PIN from hardcoded list (hardcoded takes priority)
-      if(hp.pin!==undefined) p.pin=String(hp.pin||'').trim();
-      p.status='approved';
-    }
-  });
-
-  // Bootstrap: if no admins at all, seed 'jags' as first admin
-  if(S.adminNames.length===0){
-    S.adminNames.push('jags');
-  }
-
-  // Ensure every admin has a player record with status:'approved'
+  // Keep all admins approved
   S.adminNames.forEach(adminName=>{
-    const existing=S.players.find(p=>p.name.toLowerCase()===adminName);
-    if(!existing){
-      const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff','#ff9a3c'];
-      S.players.push({
-        id:'p_admin_'+adminName.replace(/\s+/g,'_'),
-        name:adminName.charAt(0).toUpperCase()+adminName.slice(1),
-        email:'',phone:'',color:cols[S.players.length%cols.length],
-        userId:'u_admin_'+adminName.replace(/\s+/g,'_'),
-        photoBase64:null,status:'approved'
-      });
-    } else {
-      // Always keep admins approved
-      if(existing.status!=='approved') existing.status='approved';
-    }
-    // Ensure knownUser record exists
-    if(!S.knownUsers.find(u=>u.name.toLowerCase()===adminName)){
-      const cols=['#00e5a0','#4d9eff','#ff6b6b'];
-      S.knownUsers.push({
-        id:'u_admin_'+adminName.replace(/\s+/g,'_'),
-        name:adminName.charAt(0).toUpperCase()+adminName.slice(1),
-        email:'',color:cols[S.knownUsers.length%cols.length]
-      });
-    }
+    const p=S.players.find(x=>x.name.toLowerCase()===adminName);
+    if(p&&p.status!=='approved') p.status='approved';
   });
 }
 
@@ -1456,20 +1406,7 @@ async function pinLogin(){
   }
   ensureAdminExists();
 
-  // Check hardcoded players first — instant login without database
-  const hc=(HARDCODED_PLAYERS||[]).find(p=>p.name.toLowerCase()===nl);
-  if(hc){
-    const sp=String(hc.pin||'').trim();
-    const ep=String(pin||'').trim();
-    if(sp){
-      const isRem=(S.rememberedUsers||[]).some(n=>n.toLowerCase()===nl);
-      if(!isRem&&!ep){errEl.textContent='Please enter your PIN.';return;}
-      if(!isRem&&ep&&ep!==sp){errEl.textContent='Incorrect PIN. Try again.';return;}
-    }
-    if(isDbConnected()) syncFromSheets().catch(()=>{});
-    doLogin(hc.name,'');
-    return;
-  }
+
 
   // Admin check
   const isAdminRemembered=(S.rememberedUsers||[]).some(n=>n.toLowerCase()===nl);
@@ -1606,16 +1543,29 @@ async function handleGoogleUser(user){
   const email=(user.email||'').toLowerCase();
   const displayName=user.displayName||email.split('@')[0];
 
-  // Match player by: 1) googleUid 2) email 3) admin names
+  // Match player: 1) googleUid 2) email in Firebase
   let player=S.players.find(p=>p.googleUid===user.uid);
   if(!player) player=S.players.find(p=>(p.email||'').toLowerCase()===email);
 
-  // Admin bypass — if email matches an admin, find by adminNames
-  if(!player){
-    const adminNamesSet=getAdminNames();
-    // Check if this email belongs to an admin (by checking HARDCODED_PLAYERS or adminNames)
-    player=S.players.find(p=>adminNamesSet.has(p.name.toLowerCase()));
-    if(player&&player.email&&player.email.toLowerCase()!==email) player=null;
+  // Admin email bypass — always gets access even if not in Firebase yet
+  const isAdminEmail=ADMIN_EMAIL&&email===ADMIN_EMAIL.toLowerCase();
+  if(!player&&isAdminEmail){
+    // Create admin player record on first login
+    const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'];
+    player={
+      id:'p_admin_'+Date.now(),
+      name:displayName,
+      email:email,
+      phone:'',nickname:'',pin:'',
+      color:cols[0],userId:'',
+      photoBase64:null,status:'approved',
+      googleUid:user.uid
+    };
+    S.players.push(player);
+    if(!S.adminNames)S.adminNames=[];
+    S.adminNames.push(displayName.toLowerCase());
+    save();
+    await ghWriteAll().catch(()=>{});
   }
 
   if(player){
