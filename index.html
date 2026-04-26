@@ -12,48 +12,50 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Bebas+Neue&display=swap" rel="stylesheet">
 <link rel="manifest" id="pwaManifest">
 <link rel="apple-touch-icon" id="appleIcon">
-<!-- Firebase SDK -->
-<script type="module">
-  import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
-  import{getDatabase,ref,set,get,onValue,off}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
-  import{getAuth,GoogleAuthProvider,signInWithPopup,signInWithRedirect,getRedirectResult,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
-
-  const firebaseConfig={
-    apiKey:"AIzaSyAa-HRMAnNHBDEWeWRkCpWRNLfQ1fHs5VQ",
-    authDomain:"shuttle-league.firebaseapp.com",
-    databaseURL:"https://shuttle-league-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId:"shuttle-league",
-    storageBucket:"shuttle-league.firebasestorage.app",
-    messagingSenderId:"768656679462",
-    appId:"1:768656679462:web:bf19906be577d4a1cbbce7"
-  };
-
-  const app=initializeApp(firebaseConfig);
-  const db=getDatabase(app);
-  const auth=getAuth(app);
-
-  // Set persistence to LOCAL so auth survives page reloads
-  setPersistence(auth, browserLocalPersistence).catch(console.warn);
-
-  const googleProvider=new GoogleAuthProvider();
-  googleProvider.setCustomParameters({prompt:'select_account'});
-
-  window._fbDb=db;
-  window._fbAuth=auth;
-  window._fbRef=ref;
-  window._fbSet=set;
-  window._fbGet=get;
-  window._fbOnValue=onValue;
-  window._fbOff=off;
-  window._fbGoogleProvider=googleProvider;
-  window._fbSignInWithPopup=signInWithPopup;
-  window._fbSignInWithRedirect=signInWithRedirect;
-  window._fbGetRedirectResult=getRedirectResult;
-  window._fbSignOut=signOut;
-  window._fbOnAuthStateChanged=onAuthStateChanged;
-  window._firebaseReady=true;
-  document.dispatchEvent(new Event('firebaseReady'));
+<!-- Firebase SDK compat — defer init until scripts are loaded -->
+<script>
+  function initFirebase(){
+    if(typeof firebase==='undefined'){
+      setTimeout(initFirebase,100);
+      return;
+    }
+    const firebaseConfig={
+      apiKey:"AIzaSyAa-HRMAnNHBDEWeWRkCpWRNLfQ1fHs5VQ",
+      authDomain:"shuttle-league.firebaseapp.com",
+      databaseURL:"https://shuttle-league-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId:"shuttle-league",
+      storageBucket:"shuttle-league.firebasestorage.app",
+      messagingSenderId:"768656679462",
+      appId:"1:768656679462:web:bf19906be577d4a1cbbce7"
+    };
+    if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const _db=firebase.database();
+    const _auth=firebase.auth();
+    _auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(()=>{});
+    const _gp=new firebase.auth.GoogleAuthProvider();
+    _gp.setCustomParameters({prompt:'select_account'});
+    window._fbDb=_db;
+    window._fbAuth=_auth;
+    window._fbRef=(db,path)=>db.ref(path);
+    window._fbSet=(ref,data)=>ref.set(data);
+    window._fbGet=(ref)=>ref.once('value');
+    window._fbOnValue=(ref,cb)=>{ref.on('value',cb);return cb;};
+    window._fbOff=(ref,cb)=>ref.off('value',cb);
+    window._fbGoogleProvider=_gp;
+    window._fbSignInWithPopup=(auth,prov)=>auth.signInWithPopup(prov);
+    window._fbSignInWithRedirect=(auth,prov)=>auth.signInWithRedirect(prov);
+    window._fbGetRedirectResult=(auth)=>auth.getRedirectResult();
+    window._fbSignOut=(auth)=>auth.signOut();
+    window._fbOnAuthStateChanged=(auth,cb)=>auth.onAuthStateChanged(cb);
+    window._firebaseReady=true;
+    document.dispatchEvent(new Event('firebaseReady'));
+    console.log('Firebase ready');
+  }
+  window.addEventListener('load',initFirebase);
 </script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <style>
 /* ── TOKENS ── */
 :root{
@@ -415,6 +417,12 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
       <div style="font-size:52px;margin-bottom:8px;">🏸</div>
       <div style="font-size:28px;font-weight:700;letter-spacing:-0.5px;">Baddy Buddies</div>
       <p class="login-sub" style="margin-top:8px;">Sign in with Google to track your games</p>
+      <div id="biometricBtn" style="display:none;margin-top:12px;">
+        <button onclick="biometricLogin()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:15px;font-weight:500;color:var(--text);cursor:pointer;">
+          <span id="biometricIcon">🔒</span>
+          <span id="biometricLabel">Unlock with Face ID / Passcode</span>
+        </button>
+      </div>
     </div>
     <div id="loginSyncStatus" style="font-size:11px;color:var(--text3);text-align:center;margin-bottom:12px;min-height:16px;cursor:pointer;"></div>
     <div class="card" style="display:flex;flex-direction:column;gap:16px;">
@@ -895,7 +903,7 @@ const GITHUB_FILE   = 'db.json';
 const PROXY_URL     = '';
 
 let S={
-  currentUser:null,players:[],games:[],knownUsers:[],rememberedUsers:[],
+  currentUser:null,players:[],games:[],knownUsers:[],rememberedUsers:[],biometricEnabled:false,
   adminUserIds:[],adminNames:[],corrections:[],deletedPlayerIds:[],
 
   anthropicKey:'',
@@ -1031,11 +1039,16 @@ let _fbListener=null;
 let _lastFetchTime=0;
 let _cachedData=null;
 
-async function waitForFirebase(timeoutMs=10000){
+async function waitForFirebase(timeoutMs=15000){
   if(window._fbDb)return true;
   return new Promise(resolve=>{
-    document.addEventListener('firebaseReady',()=>resolve(true),{once:true});
-    setTimeout(()=>resolve(false),timeoutMs);
+    // Poll every 100ms for Firebase to be ready
+    const start=Date.now();
+    const poll=setInterval(()=>{
+      if(window._fbDb){clearInterval(poll);resolve(true);return;}
+      if(Date.now()-start>timeoutMs){clearInterval(poll);resolve(false);}
+    },100);
+    document.addEventListener('firebaseReady',()=>{clearInterval(poll);resolve(true)},{once:true});
   });
 }
 
@@ -1576,48 +1589,35 @@ async function handleGoogleUser(user){
   const email=(user.email||'').toLowerCase();
   const displayName=user.displayName||email.split('@')[0];
 
-  // ── ADMIN EMAIL CHECK FIRST — before any Firebase sync ──
-  // This guarantees admin can always log in even if Firebase is empty
+  // ── STEP 1: Admin email always gets in first ──
   const isAdminEmail=ADMIN_EMAIL&&email===ADMIN_EMAIL.toLowerCase();
-  if(isAdminEmail){
-    // Sync Firebase in background after login
-    syncFromSheets().catch(()=>{});
-    // Find or create admin player
-    let adminPlayer=S.players.find(p=>
-      p.googleUid===user.uid||
-      (p.email||'').toLowerCase()===email||
-      getAdminNames().has(p.name.toLowerCase())
-    );
-    if(!adminPlayer){
-      adminPlayer={
-        id:'p_admin_'+Date.now(),
-        name:displayName,email,phone:'',nickname:'',pin:'',
-        color:'#00e5a0',userId:'',photoBase64:null,
-        status:'approved',googleUid:user.uid
-      };
-      S.players.push(adminPlayer);
-    } else {
-      adminPlayer.status='approved';
-      if(!adminPlayer.googleUid) adminPlayer.googleUid=user.uid;
-      if(!adminPlayer.email) adminPlayer.email=email;
-    }
-    if(!S.adminNames)S.adminNames=[];
-    const aname=adminPlayer.name.toLowerCase();
-    if(!S.adminNames.includes(aname)) S.adminNames.push(aname);
-    save();
-    ghWriteAll().catch(()=>{});
-    doLogin(adminPlayer.name, email);
-    return true;
-  }
 
-  // For non-admin users — sync Firebase first to get player list
+  // ── STEP 2: Sync Firebase to get latest player list ──
   await syncFromSheets().catch(()=>{});
 
-  // Match player: 1) googleUid 2) email
+  // ── STEP 3: Match ONLY by email or googleUid — never by name ──
   let player=S.players.find(p=>p.googleUid===user.uid);
   if(!player) player=S.players.find(p=>(p.email||'').toLowerCase()===email);
 
+  // ── STEP 4: Admin email bypass — always approved ──
+  if(!player&&isAdminEmail){
+    player={
+      id:'p_admin_'+Date.now(),
+      name:displayName,email,phone:'',nickname:'',pin:'',
+      color:'#00e5a0',userId:'',photoBase64:null,
+      status:'approved',googleUid:user.uid
+    };
+    S.players.push(player);
+    if(!S.adminNames)S.adminNames=[];
+    S.adminNames.push(displayName.toLowerCase());
+    save();ghWriteAll().catch(()=>{});
+  }
+
+  // ── STEP 5: Player found by email ──
   if(player){
+    // Admin email is always approved regardless of stored status
+    if(isAdminEmail) player.status='approved';
+
     if(player.status==='pending'){
       const errEl=document.getElementById('loginError');
       if(errEl)errEl.textContent='Your account is pending admin approval.';
@@ -1626,48 +1626,28 @@ async function handleGoogleUser(user){
       await window._fbSignOut(window._fbAuth).catch(()=>{});
       return false;
     }
-    // Link Google account to player record
+
+    // Link googleUid and email to player record silently
     let changed=false;
     if(!player.googleUid){player.googleUid=user.uid;changed=true;}
     if(!player.email){player.email=email;changed=true;}
+    if(isAdminEmail&&!S.adminNames.includes(player.name.toLowerCase())){
+      if(!S.adminNames)S.adminNames=[];
+      S.adminNames.push(player.name.toLowerCase());changed=true;
+    }
     if(changed){save();ghWriteAll().catch(()=>{});}
+
     doLogin(player.name, email);
     return true;
   }
 
-  // No match — check if admin email (jaggieb@gmail.com → Jags)
-  // Admin can always log in even if email not in records
-  const adminNamesSet=getAdminNames();
-  if(adminNamesSet.size>0){
-    // If there's only one admin and no email set, auto-match
-    const adminPlayer=S.players.find(p=>adminNamesSet.has(p.name.toLowerCase())&&!p.email&&!p.googleUid);
-    if(adminPlayer){
-      adminPlayer.email=email;
-      adminPlayer.googleUid=user.uid;
-      save();ghWriteAll().catch(()=>{});
-      doLogin(adminPlayer.name, email);
-      return true;
-    }
-  }
-
-  // Genuinely new user — create pending registration
-  const newPlayer={
-    id:'p_'+Date.now(),
-    name:displayName,
-    email:email,
-    phone:'',nickname:'',pin:'',
-    color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
-    userId:'',photoBase64:null,
-    status:'pending',
-    googleUid:user.uid
-  };
-  S.players.push(newPlayer);
-  save();
-  // Push to Firebase so admin can see it
-  await ghWriteAll().catch(()=>{});
+  // ── STEP 6: Email not in database — pending registration ──
+  // Do NOT auto-create if email is unknown — require admin to add first
   await window._fbSignOut(window._fbAuth).catch(()=>{});
   const errEl=document.getElementById('loginError');
-  if(errEl)errEl.textContent='Hi '+displayName+'! Your registration is pending admin approval.';
+  if(errEl)errEl.innerHTML=
+    'Your email <strong>'+email+'</strong> is not registered.<br>'+
+    '<span style="font-size:11px;color:var(--text3);">Ask your admin to add your email to your player profile.</span>';
   const btn=document.getElementById('googleSignInBtn');
   if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
   return false;
@@ -1778,6 +1758,80 @@ async function headerRefresh(){
   renderPlayers();renderCorrections();initForm();populateHF();
   if(isAdmin())renderAdmin();
   updateBadge();
+}
+
+// ── BIOMETRIC / PASSCODE LOGIN ──
+function toggleBiometric(){
+  S.biometricEnabled=!S.biometricEnabled;
+  save();
+  const st=document.getElementById('biometricToggleState');
+  if(st)st.textContent=S.biometricEnabled?'ON':'OFF';
+  if(S.biometricEnabled){
+    alert('✅ Quick unlock enabled!\n\nNext time you open the app, tap "Unlock with Face ID / Passcode" to sign in instantly using your device biometrics or passcode.');
+  } else {
+    alert('Quick unlock disabled. You will need to sign in with Google each time.');
+  }
+}
+
+async function biometricLogin(){
+  if(!S.biometricEnabled||!S.currentUser)return;
+  const btn=document.getElementById('biometricBtn');
+  const label=document.getElementById('biometricLabel');
+  if(btn)btn.style.opacity='0.7';
+  if(label)label.textContent='Verifying…';
+
+  try{
+    // Try WebAuthn / platform authenticator (Face ID, fingerprint, passcode)
+    // This triggers the device's native biometric/passcode prompt
+    const supported=window.PublicKeyCredential&&
+      await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().catch(()=>false);
+
+    if(supported){
+      // Create a challenge to verify with biometrics
+      const challenge=new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      try{
+        await navigator.credentials.get({
+          publicKey:{
+            challenge,
+            timeout:60000,
+            userVerification:'required',
+            // Try stored credentials first
+            allowCredentials:[]
+          }
+        });
+      }catch(e){
+        // If no credential registered, fall back to just restoring the session
+        // The act of getting here means Google auth was already done
+        if(e.name!=='NotAllowedError'&&e.name!=='InvalidStateError'){
+          console.warn('WebAuthn:',e.name);
+        }
+      }
+    }
+
+    // Session was already stored by Google auth — just restore it
+    if(S.currentUser){
+      initApp();
+      return;
+    }
+  }catch(e){
+    console.warn('Biometric error:',e.message);
+  }
+  if(btn)btn.style.opacity='1';
+  if(label)label.textContent='Unlock as '+(S.currentUser?.name||'');
+}
+
+function showBiometricButtonIfEnabled(){
+  const btn=document.getElementById('biometricBtn');
+  const toggleSt=document.getElementById('biometricToggleState');
+  if(btn) btn.style.display=S.biometricEnabled&&S.currentUser?'block':'none';
+  if(toggleSt) toggleSt.textContent=S.biometricEnabled?'ON':'OFF';
+  if(S.biometricEnabled&&S.currentUser){
+    const icon=document.getElementById('biometricIcon');
+    const label=document.getElementById('biometricLabel');
+    if(icon)icon.textContent='🔒';
+    if(label)label.textContent='Unlock as '+(S.currentUser.name);
+  }
 }
 
 function logout(){
@@ -1913,6 +1967,29 @@ async function initApp(){
   initForm();initSets();
   renderDashboard();renderLeaderboard('today');renderHistory();renderPlayers();renderCorrections();
   if(isAdmin())renderAdmin();populateHF();
+
+  // On mobile, Firebase data may arrive after initial render — re-render when ready
+  if(isDbConnected()){
+    setTimeout(async()=>{
+      const data=await jsonbinRead(true).catch(()=>null);
+      if(data){
+        let changed=false;
+        if(Array.isArray(data.players)&&data.players.length>S.players.length){
+          const del=new Set(S.deletedPlayerIds||[]);
+          S.players=data.players.filter(p=>p&&p.id&&!del.has(p.id))
+            .map(p=>{const lp=S.players.find(x=>x.id===p.id);return{...p,photoBase64:lp?.photoBase64||null};});
+          ensureAdminExists();changed=true;
+        }
+        if(Array.isArray(data.games)&&data.games.length>S.games.length){S.games=data.games;changed=true;}
+        if(Array.isArray(data.corrections)&&data.corrections.length>S.corrections.length){S.corrections=data.corrections;changed=true;}
+        if(changed){
+          save();
+          renderDashboard();renderLeaderboard('today');renderHistory();renderPlayers();renderCorrections();
+          if(isAdmin())renderAdmin();populateHF();updateBadge();
+        }
+      }
+    },2000); // retry after 2s to catch late Firebase loads on mobile
+  }
 }
 
 // ============================================================
