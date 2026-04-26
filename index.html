@@ -16,7 +16,7 @@
 <script type="module">
   import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
   import{getDatabase,ref,set,get,onValue,off}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
-  import{getAuth,signInWithPhoneNumber,RecaptchaVerifier,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+  import{getAuth,GoogleAuthProvider,signInWithPopup,signInWithRedirect,getRedirectResult,signOut,onAuthStateChanged}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
   const firebaseConfig={
     apiKey:"AIzaSyAa-HRMAnNHBDEWeWRkCpWRNLfQ1fHs5VQ",
@@ -42,10 +42,10 @@
   window._fbOff=off;
   window._fbGoogleProvider=new GoogleAuthProvider();
   window._fbSignInWithPopup=signInWithPopup;
+  window._fbSignInWithRedirect=signInWithRedirect;
+  window._fbGetRedirectResult=getRedirectResult;
   window._fbSignOut=signOut;
   window._fbOnAuthStateChanged=onAuthStateChanged;
-  window._fbRecaptchaVerifier=RecaptchaVerifier;
-  window._fbSignInWithPhone=signInWithPhoneNumber;
   window._firebaseReady=true;
   document.dispatchEvent(new Event('firebaseReady'));
   console.log('Firebase initialized');
@@ -1550,62 +1550,19 @@ async function saveNewPin(){
 // Simple login — no extra approval checks, just set currentUser and go
 async function signInWithGoogle(){
   const btn=document.getElementById('googleSignInBtn');
-  if(btn){btn.disabled=true;btn.textContent='Signing in…';}
+  if(btn){btn.disabled=true;btn.innerHTML='Signing in…';}
   try{
     await waitForFirebase();
+    // Use redirect on mobile (avoids popup/sessionStorage issues)
+    const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if(isMobile){
+      // Save flag so we know redirect is in progress
+      sessionStorage.setItem('googleRedirectPending','1');
+      await window._fbSignInWithRedirect(window._fbAuth, window._fbGoogleProvider);
+      return; // page will redirect and come back
+    }
     const result=await window._fbSignInWithPopup(window._fbAuth, window._fbGoogleProvider);
-    const user=result.user;
-    const email=user.email||'';
-    const displayName=user.displayName||email.split('@')[0];
-
-    // Sync from Firebase to get latest player list
-    await syncFromSheets().catch(()=>{});
-
-    // Check if this email matches a registered player
-    let player=S.players.find(p=>(p.email||'').toLowerCase()===email.toLowerCase());
-
-    if(!player){
-      // Check by name match
-      player=S.players.find(p=>
-        p.name.toLowerCase()===displayName.toLowerCase()||
-        p.nickname?.toLowerCase()===displayName.toLowerCase()
-      );
-    }
-
-    if(player){
-      if(player.status==='pending'){
-        document.getElementById('loginError').textContent='Your account is pending admin approval.';
-        await window._fbSignOut(window._fbAuth);
-        if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
-        return;
-      }
-      // Link Google UID to player
-      if(!player.googleUid){
-        player.googleUid=user.uid;
-        player.email=email;
-        ghWriteAll().catch(()=>{});
-      }
-      doLogin(player.name, email);
-    } else {
-      // New Google user — create pending registration
-      const newPlayer={
-        id:'p_'+Date.now(),
-        name:displayName,
-        email:email,
-        phone:'',nickname:'',pin:'',
-        color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
-        userId:'',photoBase64:null,
-        status:'pending',
-        googleUid:user.uid
-      };
-      S.players.push(newPlayer);
-      save();
-      ghWriteAll().catch(()=>{});
-      await window._fbSignOut(window._fbAuth);
-      document.getElementById('loginError').textContent=
-        'Welcome '+displayName+'! Your registration is pending admin approval.';
-      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
-    }
+    await handleGoogleUser(result.user);
   }catch(e){
     console.error('Google sign-in error:',e);
     document.getElementById('loginError').textContent=
@@ -1625,20 +1582,62 @@ function googleBtnHTML(){
     </svg> Continue with Google`;
 }
 
+async function handleGoogleUser(user){
+  if(!user)return false;
+  await syncFromSheets().catch(()=>{});
+  const email=user.email||'';
+  const displayName=user.displayName||email.split('@')[0];
+  let player=S.players.find(p=>(p.email||'').toLowerCase()===email.toLowerCase());
+  if(!player) player=S.players.find(p=>p.googleUid===user.uid);
+  if(player){
+    if(player.status==='pending'){
+      document.getElementById('loginError').textContent='Your account is pending admin approval.';
+      await window._fbSignOut(window._fbAuth).catch(()=>{});
+      return false;
+    }
+    if(!player.googleUid){player.googleUid=user.uid;ghWriteAll().catch(()=>{});}
+    doLogin(player.name, email);
+    return true;
+  } else {
+    // New user — create pending registration
+    const newPlayer={
+      id:'p_'+Date.now(),name:displayName,email,phone:'',nickname:'',pin:'',
+      color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
+      userId:'',photoBase64:null,status:'pending',googleUid:user.uid
+    };
+    S.players.push(newPlayer);save();ghWriteAll().catch(()=>{});
+    await window._fbSignOut(window._fbAuth).catch(()=>{});
+    const errEl=document.getElementById('loginError');
+    if(errEl) errEl.textContent='Welcome '+displayName+'! Your registration is pending admin approval.';
+    const btn=document.getElementById('googleSignInBtn');
+    if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+    return false;
+  }
+}
+
 // Auto sign-in if Firebase auth session exists
 async function checkFirebaseAuthState(){
   await waitForFirebase();
+
+  // Handle redirect result first (mobile Google sign-in)
+  try{
+    const result=await window._fbGetRedirectResult(window._fbAuth);
+    if(result&&result.user){
+      sessionStorage.removeItem('googleRedirectPending');
+      await handleGoogleUser(result.user);
+      return;
+    }
+  }catch(e){
+    console.warn('Redirect result error:',e.message);
+    sessionStorage.removeItem('googleRedirectPending');
+    const errEl=document.getElementById('loginError');
+    if(errEl) errEl.textContent='Sign-in failed: '+e.message;
+  }
+
+  // Check persistent auth state
   window._fbOnAuthStateChanged(window._fbAuth, async(user)=>{
     if(user&&!S.currentUser){
-      // User was previously signed in — auto login
-      await syncFromSheets().catch(()=>{});
-      const player=S.players.find(p=>
-        (p.googleUid===user.uid)||
-        ((p.email||'').toLowerCase()===user.email?.toLowerCase())
-      );
-      if(player&&player.status==='approved'){
-        doLogin(player.name, user.email||'');
-      }
+      await handleGoogleUser(user);
     }
   });
 }
