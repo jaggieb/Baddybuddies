@@ -496,14 +496,40 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
       <div id="syncBanner" style="display:none;"></div>
       <div class="section-title" id="dashGreet">Good Game!</div>
       <div class="section-sub" id="dashDate"></div>
-      <div class="stats-row" id="myStats"></div>
-      <div class="top5-section">
-        <div class="top5-card"><div class="top5-header today-h">🏆 Top 5 Today</div><div id="top5Today"></div></div>
-        <div class="top5-card"><div class="top5-header week-h">📅 Top 5 This Week</div><div id="top5Week"></div></div>
+
+      <!-- Dashboard Tabs -->
+      <div style="display:flex;gap:0;margin-bottom:16px;background:var(--surface);border-radius:10px;padding:3px;">
+        <button id="dashTabMe" onclick="switchDashTab('me')"
+          style="flex:1;padding:8px;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:var(--accent);color:#000;transition:all .2s;">
+          👤 My Stats
+        </button>
+        <button id="dashTabAll" onclick="switchDashTab('all')"
+          style="flex:1;padding:8px;border:none;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;background:transparent;color:var(--text2);transition:all .2s;">
+          👥 All Players
+        </button>
       </div>
-      <div class="form-grid">
-        <div class="card"><div class="card-title">My Recent Games</div><div id="myRecent"></div></div>
-        <div class="card"><div class="card-title">Win / Loss This Week</div><div id="weekChart" class="chart-wrap"></div><div style="margin-top:10px;font-size:11px;color:var(--text2);">🟢 Wins &nbsp;🔴 Losses</div></div>
+
+      <!-- My Stats Tab -->
+      <div id="dashPanelMe">
+        <div class="stats-row" id="myStats"></div>
+        <div class="top5-section">
+          <div class="top5-card"><div class="top5-header today-h">🏆 Top 5 Today</div><div id="top5Today"></div></div>
+          <div class="top5-card"><div class="top5-header week-h">📅 Top 5 This Week</div><div id="top5Week"></div></div>
+        </div>
+        <div class="form-grid">
+          <div class="card"><div class="card-title">My Recent Games</div><div id="myRecent"></div></div>
+          <div class="card"><div class="card-title">Win / Loss This Week</div><div id="weekChart" class="chart-wrap"></div><div style="margin-top:10px;font-size:11px;color:var(--text2);">🟢 Wins &nbsp;🔴 Losses</div></div>
+        </div>
+      </div>
+
+      <!-- All Players Tab -->
+      <div id="dashPanelAll" style="display:none;">
+        <div class="stats-row" id="allStats"></div>
+        <div class="top5-section">
+          <div class="top5-card"><div class="top5-header today-h">🏆 Top 5 Today</div><div id="allTop5Today"></div></div>
+          <div class="top5-card"><div class="top5-header week-h">📅 Top 5 This Week</div><div id="allTop5Week"></div></div>
+        </div>
+        <div class="card" style="margin-top:12px;"><div class="card-title">Recent Games — All Players</div><div id="allRecent"></div></div>
       </div>
     </div>
 
@@ -556,8 +582,16 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 
         <div class="card-title">Score</div>
         <div class="form-grid" style="margin-bottom:16px;">
-          <div class="form-group"><label>Team A Score</label><input type="number" min="0" max="50" placeholder="0" class="score-input" id="scoreA" style="width:100%;"/></div>
-          <div class="form-group"><label>Team B Score</label><input type="number" min="0" max="50" placeholder="0" class="score-input" id="scoreB" style="width:100%;"/></div>
+          <div class="form-group"><label>Team A Score</label>
+            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="99"
+              placeholder="0" class="score-input" id="scoreA" style="width:100%;"
+              oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+          </div>
+          <div class="form-group"><label>Team B Score</label>
+            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="99"
+              placeholder="0" class="score-input" id="scoreB" style="width:100%;"
+              oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+          </div>
         </div>
 
         <div id="selectionError" style="color:var(--danger);font-size:12px;margin-bottom:10px;display:none;"></div>
@@ -1070,6 +1104,7 @@ function subscribeToFirebase(){
       else if(pid==='players')renderPlayers();
       else if(pid==='admin'&&isAdmin())renderAdmin();
       else if(pid==='addGame')renderSessionGames();
+      else if(pid==='corrections')renderCorrections();
     }
     renderDashboard();
   });
@@ -2056,7 +2091,13 @@ function showPage(name){
     }
   }
   if(name==='dashboard')renderDashboard();
-  if(name==='corrections')renderCorrections();
+  if(name==='corrections'){
+    renderCorrections();
+    if(isDbConnected()){
+      _cachedData=null;
+      syncFromSheets().then(()=>{renderCorrections();updateBadge();}).catch(()=>{});
+    }
+  }
   if(name==='admin'&&isAdmin()){
     renderAdmin(); // render immediately with local data
     // Sync silently in background — no loading spinner
@@ -2599,27 +2640,58 @@ function copyAISummary(){copyDaySummary();}
 // ============================================================
 // DASHBOARD
 // ============================================================
+let _dashTab='me';
+function switchDashTab(tab){
+  _dashTab=tab;
+  document.getElementById('dashPanelMe').style.display=tab==='me'?'':'none';
+  document.getElementById('dashPanelAll').style.display=tab==='all'?'':'none';
+  const btnMe=document.getElementById('dashTabMe');
+  const btnAll=document.getElementById('dashTabAll');
+  if(btnMe){btnMe.style.background=tab==='me'?'var(--accent)':'transparent';btnMe.style.color=tab==='me'?'#000':'var(--text2)';btnMe.style.fontWeight=tab==='me'?'600':'500';}
+  if(btnAll){btnAll.style.background=tab==='all'?'var(--accent)':'transparent';btnAll.style.color=tab==='all'?'#000':'var(--text2)';btnAll.style.fontWeight=tab==='all'?'600':'500';}
+  renderDashboard();
+}
+
 function renderDashboard(){
   const u=S.currentUser,h=new Date().getHours();
-  document.getElementById('dashGreet').textContent=`${h<12?'Good Morning':h<17?'Good Afternoon':'Good Evening'}, ${u.name.split(' ')[0]}! 🏸`;
+  const firstName=(u.name||'').split(' ')[0];
+  document.getElementById('dashGreet').textContent=`${h<12?'Good Morning':h<17?'Good Afternoon':'Good Evening'}, ${firstName}! 🏸`;
   document.getElementById('dashDate').textContent=new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   const mp=myPlayer(),myPid=mp?mp.id:null;
-  const ag=S.games.filter(g=>myPid&&(g.teamA.includes(myPid)||g.teamB.includes(myPid)));
-  const tg=ag.filter(g=>g.date===tstr()),wg=ag.filter(g=>g.date>=wkStart());
-  const cw=(gs)=>{let w=0;gs.forEach(g=>{const inA=g.teamA.includes(myPid);const aW=g.sets.filter(s=>s.a>s.b).length,bW=g.sets.filter(s=>s.b>s.a).length;if((inA&&aW>bW)||(!inA&&bW>aW))w++;});return w;};
-  const tw=cw(tg),aw=cw(ag),ww=cw(wg),wr=ag.length?Math.round(aw/ag.length*100):0;
-  document.getElementById('myStats').innerHTML=`
-    <div class="stat-card"><div class="stat-num">${tg.length}</div><div class="stat-label">Today</div></div>
-    <div class="stat-card"><div class="stat-num" style="color:var(--accent);">${tw}</div><div class="stat-label">Won Today</div></div>
-    <div class="stat-card"><div class="stat-num" style="color:var(--danger);">${tg.length-tw}</div><div class="stat-label">Lost Today</div></div>
-    <div class="stat-card"><div class="stat-num">${ww}/${wg.length}</div><div class="stat-label">This Week</div></div>
-    <div class="stat-card"><div class="stat-num">${wr}%</div><div class="stat-label">Win Rate</div></div>
-    <div class="stat-card"><div class="stat-num">${ag.length}</div><div class="stat-label">Total</div></div>`;
-  const rec=[...ag].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
-  document.getElementById('myRecent').innerHTML=rec.length?rec.map(g=>miniGameHTML(g,myPid)).join(''):`<div class="empty-state"><div class="empty-icon">🏸</div><div class="empty-text">No games yet.</div></div>`;
-  renderTop5('today',document.getElementById('top5Today'));
-  renderTop5('week',document.getElementById('top5Week'));
-  renderWeekChart(myPid);
+
+  if(_dashTab==='me'){
+    // ── MY STATS ──
+    const ag=S.games.filter(g=>myPid&&(g.teamA.includes(myPid)||g.teamB.includes(myPid)));
+    const tg=ag.filter(g=>g.date===tstr()),wg=ag.filter(g=>g.date>=wkStart());
+    const cw=(gs,pid)=>{let w=0;gs.forEach(g=>{const inA=g.teamA.includes(pid);const aW=g.sets.filter(s=>s.a>s.b).length,bW=g.sets.filter(s=>s.b>s.a).length;if((inA&&aW>bW)||(!inA&&bW>aW))w++;});return w;};
+    const tw=cw(tg,myPid),aw=cw(ag,myPid),ww=cw(wg,myPid),wr=ag.length?Math.round(aw/ag.length*100):0;
+    document.getElementById('myStats').innerHTML=`
+      <div class="stat-card"><div class="stat-num">${tg.length}</div><div class="stat-label">Today</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--accent);">${tw}</div><div class="stat-label">Won Today</div></div>
+      <div class="stat-card"><div class="stat-num" style="color:var(--danger);">${tg.length-tw}</div><div class="stat-label">Lost Today</div></div>
+      <div class="stat-card"><div class="stat-num">${ww}/${wg.length}</div><div class="stat-label">This Week</div></div>
+      <div class="stat-card"><div class="stat-num">${wr}%</div><div class="stat-label">Win Rate</div></div>
+      <div class="stat-card"><div class="stat-num">${ag.length}</div><div class="stat-label">Total</div></div>`;
+    const rec=[...ag].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,4);
+    document.getElementById('myRecent').innerHTML=rec.length?rec.map(g=>miniGameHTML(g,myPid)).join(''):`<div class="empty-state"><div class="empty-icon">🏸</div><div class="empty-text">No games yet.</div></div>`;
+    renderTop5('today',document.getElementById('top5Today'));
+    renderTop5('week',document.getElementById('top5Week'));
+    renderWeekChart(myPid);
+  } else {
+    // ── ALL PLAYERS STATS ──
+    const allG=S.games;
+    const todayG=allG.filter(g=>g.date===tstr());
+    const weekG=allG.filter(g=>g.date>=wkStart());
+    document.getElementById('allStats').innerHTML=`
+      <div class="stat-card"><div class="stat-num">${todayG.length}</div><div class="stat-label">Today</div></div>
+      <div class="stat-card"><div class="stat-num">${weekG.length}</div><div class="stat-label">This Week</div></div>
+      <div class="stat-card"><div class="stat-num">${allG.length}</div><div class="stat-label">All Time</div></div>
+      <div class="stat-card"><div class="stat-num">${S.players.filter(p=>p.status==='approved'||!p.status).length}</div><div class="stat-label">Players</div></div>`;
+    renderTop5('today',document.getElementById('allTop5Today'));
+    renderTop5('week',document.getElementById('allTop5Week'));
+    const rec=[...allG].sort((a,b)=>b.date.localeCompare(a.date)).slice(0,8);
+    document.getElementById('allRecent').innerHTML=rec.length?rec.map(g=>miniGameHTML(g,myPid)).join(''):`<div class="empty-state"><div class="empty-icon">🏸</div><div class="empty-text">No games recorded yet.</div></div>`;
+  }
 }
 
 function renderTop5(period,container){
@@ -2672,8 +2744,11 @@ function renderWeekChart(myPid){
 function setLbP(p,el){document.querySelectorAll('.ptab').forEach(t=>t.classList.remove('active'));if(el)el.classList.add('active');renderLeaderboard(p);}
 function renderLeaderboard(period){
   const games=inP(period);const pset=new Set();
-  games.forEach(g=>[...g.teamA,...g.teamB].forEach(id=>pset.add(id)));
-  if(period==='all')S.players.forEach(p=>pset.add(p.id));
+  games.forEach(g=>[...g.teamA,...g.teamB].filter(id=>!id.startsWith('guest_')).forEach(id=>pset.add(id)));
+  // Always show ALL approved players in leaderboard
+  S.players.filter(p=>p.status==='approved'||!p.status).forEach(p=>{
+    if(!p.id.startsWith('guest_'))pset.add(p.id);
+  });
   const mp=myPlayer(),myPid=mp?mp.id:null;
   const ranked=[...pset].map(pid=>{const s=pstats(pid,games);return{...s,pid,name:pname(pid),pts:s.wins*3-s.losses,wr:s.games?Math.round(s.wins/s.games*100):0};}).sort((a,b)=>b.pts-a.pts||b.wr-a.wr||b.wins-a.wins);
   if(!ranked.length){document.getElementById('lbBody').innerHTML=`<tr><td colspan="7" style="text-align:center;padding:28px;color:var(--text2);">No games.</td></tr>`;return;}
@@ -2872,7 +2947,12 @@ async function submitCorr(){
   const corr={id:'c_'+Date.now(),gameId:corrGameId,raisedBy:S.currentUser.id,raisedByName:S.currentUser.name,
     originalSets:g.sets,proposedSets:ns,reason,status:'pending',raisedAt:new Date().toISOString(),resolvedBy:null,resolvedAt:null};
   S.corrections.push(corr);save();closeModal('corrModal');updateBadge();
-  loading(true,'Saving…');await sheetsWriteCorrection(corr);loading(false);
+  loading(true,'Saving dispute…');
+  await sheetsWriteCorrection(corr);
+  loading(false);
+  // Force all other devices to refresh via Firebase real-time
+  _cachedData=null;
+  renderHistory();renderCorrections();
   alert('✅ Correction submitted. Pending admin review.');renderHistory();renderCorrections();
 }
 
