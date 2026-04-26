@@ -995,13 +995,27 @@ async function forcePushToGitHub(){
   const st=document.getElementById('pushStatus');
   const btn=document.querySelector('[onclick="forcePushToGitHub()"]');
   if(btn){btn.disabled=true;btn.textContent='Pushing…';}
-  if(st)st.innerHTML='<span style="color:var(--text2);">Writing to Firebase…</span>';
-  const r=await ghWriteAll();
-  if(r&&r.success){
-    if(st)st.innerHTML=`<span style="color:var(--accent);">✅ Pushed to Firebase! Players: ${S.players.length}, Games: ${S.games.length}</span>`;
+  if(st)st.innerHTML='<span style="color:var(--text2);">Connecting to Firebase…</span>';
+
+  const ready=await waitForFirebase(10000);
+  if(!ready){
+    if(st)st.innerHTML='<span style="color:var(--danger);">❌ Firebase not ready. Reload the page and try again.</span>';
+    if(btn){btn.disabled=false;btn.textContent='⬆️ Push All Data to Database';}
+    return;
+  }
+
+  if(st)st.innerHTML='<span style="color:var(--text2);">Writing '+S.players.length+' players and '+S.games.length+' games…</span>';
+
+  try{
+    const players=S.players.map(p=>{const{photoBase64,...rest}=p;return rest;});
+    const data={players,games:S.games,corrections:S.corrections};
+    await window._fbDb.ref('shuttleLeague').set(data);
+    if(st)st.innerHTML='<span style="color:var(--accent);">✅ Pushed! Players: '+players.length+' Games: '+S.games.length+'</span>';
     _syncHasSucceeded=true;
-  }else{
-    if(st)st.innerHTML=`<span style="color:var(--danger);">❌ Failed: ${r?.error||'unknown'}</span>`;
+    dbg('Push complete: '+players.length+' players, '+S.games.length+' games');
+  }catch(e){
+    if(st)st.innerHTML='<span style="color:var(--danger);">❌ Failed: '+e.message+'</span>';
+    dbg('Push failed: '+e.message);
   }
   if(btn){btn.disabled=false;btn.textContent='⬆️ Push All Data to Database';}
 }
