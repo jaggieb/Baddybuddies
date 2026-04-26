@@ -1713,8 +1713,7 @@ function stopAdminPoll(){
 
 async function initApp(){
   ensureAdminExists();save();
-  // Start Firebase real-time listener
-  if(window._fbDb) subscribeToFirebase();
+
   // Re-check approval on every app entry
   if(S.currentUser&&!isApproved(S.currentUser.name)){
     S.currentUser=null;save();
@@ -1726,7 +1725,15 @@ async function initApp(){
     return;
   }
   document.getElementById('loginPage').style.display='none';
-  // Setup page removed — config is hardcoded via DEFAULT_SHEET_ID / DEFAULT_WEBAPP_URL
+
+  // Load latest data from Firebase before rendering
+  if(window._fbDb){
+    loading(true,'Loading data…');
+    await syncFromSheets().catch(()=>{});
+    loading(false);
+    subscribeToFirebase();
+  }
+
   document.getElementById('mainApp').style.display='block';
   const u=S.currentUser;
   document.getElementById('headerName').textContent=u.name;
