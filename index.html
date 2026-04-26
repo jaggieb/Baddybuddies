@@ -1678,11 +1678,10 @@ async function checkFirebaseAuthState(){
 }
 
 function doLogin(name, email){
-  // Normalize: use the stored player name (preserves admin's chosen casing)
-  // so 'jags', 'JAGS', 'Jags' all resolve to the same record
   const nl=name.toLowerCase();
   const pl=S.players.find(p=>p.name.toLowerCase()===nl);
-  const canonical=pl?pl.name:name; // use stored name casing if available
+  // Use nickname as display name if available
+  const canonical=pl?(pl.nickname||pl.name):name;
 
   const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff','#ff9a3c','#46d9d9','#f06292','#aed581'];
   let u=S.knownUsers.find(x=>x.name.toLowerCase()===nl);
@@ -1841,7 +1840,9 @@ async function initApp(){
 
   document.getElementById('mainApp').style.display='block';
   const u=S.currentUser;
-  document.getElementById('headerName').textContent=u.name;
+  // Show nickname in header if available
+  const hp=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
+  document.getElementById('headerName').textContent=(hp&&hp.nickname)||u.name;
   const mp2=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase()||p.userId===u.id);
   const av=document.getElementById('headerAvatar');
   if(mp2&&mp2.photoBase64){av.innerHTML=`<img src="${mp2.photoBase64}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;av.style.background='none';}
