@@ -3181,27 +3181,63 @@ function openReview(cid){
 
 async function resolveCorr(decision){
   const corr=S.corrections.find(x=>x.id===reviewCorrId);if(!corr)return;
-  corr.status=decision;corr.resolvedBy=S.currentUser.id;corr.resolvedAt=new Date().toISOString();
+  corr.status=decision;
+  corr.resolvedBy=S.currentUser.id;
+  corr.resolvedAt=new Date().toISOString();
+
   if(decision==='approved'){
     const g=S.games.find(x=>x.id===corr.gameId);
     if(g){
-      g.sets=corr.proposedSets;
-      // Determine winner from proposed scores for clarity
-      const sc=corr.proposedSets[0]||{a:0,b:0};
+      // Apply proposed scores to the game
+      g.sets=corr.proposedSets.map(s=>({a:Number(s.a),b:Number(s.b)}));
+      const sc=g.sets[0]||{a:0,b:0};
       const tA=g.teamA.map(pname).join(' & ');
       const tB=g.teamB.map(pname).join(' & ');
       const winner=sc.a>sc.b?tA:sc.b>sc.a?tB:'Draw';
-      console.log('Dispute approved. New scores:',sc,'Winner:',winner);
+      dbg('Dispute approved. '+tA+' '+sc.a+' - '+sc.b+' '+tB+'. Winner: '+winner);
     }
   }
-  save();closeModal('reviewModal');updateBadge();
-  loading(true,'Saving…');
-  // Push full updated data to Firebase so all devices get the corrected scores
-  await ghWriteAll();
+
+  save();
+  closeModal('reviewModal');
+  updateBadge();
+
+  loading(true,'Saving to Firebase…');
+  try{
+    // Write directly to Firebase — bypass any caching
+    const ready=await waitForFirebase(8000);
+    if(ready){
+      const players=S.players.map(p=>{const{photoBase64,...rest}=p;return rest;});
+      await window._fbDb.ref('shuttleLeague').set({
+        players,
+        games:S.games,
+        corrections:S.corrections
+      });
+      dbg('Dispute saved to Firebase');
+    }
+  }catch(e){
+    dbg('Firebase write error: '+e.message);
+  }
   loading(false);
-  renderCorrections();renderHistory();renderDashboard();renderLeaderboard('today');if(isAdmin())renderAdmin();
-  const msg=decision==='approved'?'✅ Scores updated and saved to Firebase.':'❌ Correction rejected.';
-  alert(msg);
+
+  // Re-render everything with updated scores
+  renderCorrections();
+  renderHistory();
+  renderDashboard();
+  renderLeaderboard('today');
+  if(isAdmin())renderAdmin();
+
+  const sc2=corr.proposedSets[0]||{a:0,b:0};
+  const g2=S.games.find(x=>x.id===corr.gameId);
+  const tA2=g2?g2.teamA.map(pname).join(' & '):'Team A';
+  const tB2=g2?g2.teamB.map(pname).join(' & '):'Team B';
+  const winner2=sc2.a>sc2.b?tA2:sc2.b>sc2.a?tB2:'Draw';
+
+  if(decision==='approved'){
+    alert('Scores updated! New score: '+sc2.a+' - '+sc2.b+'. Winner: '+winner2);
+  } else {
+    alert('Correction rejected.');
+  }
 }
 
 // ============================================================
