@@ -502,15 +502,10 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     <!-- DASHBOARD -->
     <div id="page-dashboard" class="page active">
       <div id="syncBanner" style="display:none;"></div>
-      <div id="debugPanel" style="background:#1a2236;border:1px solid #4d9eff;border-radius:8px;padding:10px;margin-bottom:10px;font-size:11px;font-family:monospace;color:#8899b5;display:none;max-height:200px;overflow-y:auto;"></div>
+
       <div class="section-title" id="dashGreet">Good Game!</div>
       <div class="section-sub" id="dashDate"></div>
-      <div style="display:flex;gap:8px;margin-bottom:8px;">
-        <button onclick="document.getElementById('debugPanel').style.display=document.getElementById('debugPanel').style.display==='none'?'block':'none'" 
-          style="font-size:10px;padding:3px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;">🔍 Debug</button>
-        <button onclick="forceSyncNow()" 
-          style="font-size:10px;padding:3px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);cursor:pointer;">🔄 Force Sync</button>
-      </div>
+
 
       <!-- Dashboard Tabs -->
       <div style="display:flex;gap:0;margin-bottom:16px;background:var(--surface);border-radius:10px;padding:3px;">
@@ -764,11 +759,14 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
       <div class="admin-section" style="border-color:rgba(0,229,160,0.2);">
         <div class="admin-st" style="color:var(--accent);">🔌 Firebase Database</div>
         <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">Test connection and push all local data to Firebase.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
           <button class="btn btn-outline btn-sm" onclick="testDbConnection()">🔌 Test Connection</button>
-          <button class="btn btn-primary btn-sm" onclick="forcePushToGitHub()">⬆️ Push All Data to Database</button>
+          <button class="btn btn-primary btn-sm" onclick="forcePushToGitHub()">⬆️ Push All Data</button>
+          <button class="btn btn-outline btn-sm" onclick="forceSyncNow()">🔄 Force Sync</button>
+          <button class="btn btn-outline btn-sm" onclick="toggleAdminDebug()">🔍 Debug Log</button>
         </div>
-        <div id="pushStatus" style="margin-top:10px;font-size:12px;"></div>
+        <div id="pushStatus" style="font-size:12px;margin-bottom:8px;"></div>
+        <div id="debugPanel" style="background:#0a0f1a;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;font-family:monospace;color:#8899b5;display:none;max-height:200px;overflow-y:auto;"></div>
       </div>
 
       <div class="admin-section" style="border-color:rgba(255,77,109,0.2);">
@@ -2716,6 +2714,11 @@ function copyAISummary(){copyDaySummary();}
 // ============================================================
 // DASHBOARD
 // ============================================================
+function toggleAdminDebug(){
+  const dp=document.getElementById('debugPanel');
+  if(dp)dp.style.display=dp.style.display==='none'?'block':'none';
+}
+
 async function forceSyncNow(){
   dbg('Force sync started...');
   dbg('Firebase ready: '+!!window._fbDb);
