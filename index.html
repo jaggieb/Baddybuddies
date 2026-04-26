@@ -612,16 +612,20 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 
         <div class="card-title">Score</div>
         <div class="form-grid" style="margin-bottom:16px;">
+          <div style="grid-column:1/-1;font-size:10px;color:var(--text3);background:var(--surface);border-radius:6px;padding:6px 10px;margin-bottom:2px;">
+            📋 <strong>Scoring:</strong> First to 21 · Win by 2 · Max 30 (29-all: next point wins)
+          </div>
           <div class="form-group"><label>Team A Score</label>
-            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="99"
+            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="30"
               placeholder="0" class="score-input" id="scoreA" style="width:100%;"
-              oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+              oninput="this.value=this.value.replace(/[^0-9]/g,'');liveScoreCheck()"/>
           </div>
           <div class="form-group"><label>Team B Score</label>
-            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="99"
+            <input type="number" inputmode="numeric" pattern="[0-9]*" min="0" max="30"
               placeholder="0" class="score-input" id="scoreB" style="width:100%;"
-              oninput="this.value=this.value.replace(/[^0-9]/g,'')"/>
+              oninput="this.value=this.value.replace(/[^0-9]/g,'');liveScoreCheck()"/>
           </div>
+          <div id="scoreValidMsg" style="font-size:11px;min-height:16px;margin-top:-4px;grid-column:1/-1;"></div>
         </div>
 
         <div id="selectionError" style="color:var(--danger);font-size:12px;margin-bottom:10px;display:none;"></div>
@@ -2230,6 +2234,27 @@ function initForm(){
 }
 
 // ── Validate no duplicate players across 4 selects ──
+// ── Badminton score validation ──
+// First to 21, must win by 2, max 30 (29-29 → next point wins)
+function validateBadmintonScore(a, b){
+  a=parseInt(a)||0; b=parseInt(b)||0;
+  if(a<0||b<0) return{valid:false,msg:'Scores cannot be negative.'};
+  if(a>30||b>30) return{valid:false,msg:'Maximum score is 30.'};
+  // Both scores reasonable — check win conditions
+  const max=Math.max(a,b);
+  const min=Math.min(a,b);
+  // At least one must have reached 21
+  if(max<21) return{valid:true,warn:'Game is still in progress (no one has reached 21 yet).'};
+  // Must win by 2 unless at 29-29 (30 wins)
+  if(max<=29){
+    if(max-min<2) return{valid:false,msg:'Must win by 2 points (e.g. 22-20, not 21-20).'};
+  }
+  // At 29-29 only 30 is valid for winner
+  if(min===29&&max===29) return{valid:false,msg:'At 29-29, keep playing — next point wins (30-29).'};
+  if(min===29&&max!==30) return{valid:false,msg:'From 29-all, winner must reach exactly 30.'};
+  return{valid:true};
+}
+
 function onPlayerSelChange(selId, guestInputId){
   const sel=document.getElementById(selId);
   const inp=document.getElementById(guestInputId);
@@ -2302,6 +2327,12 @@ async function addGameToSession(){
     errEl.textContent='Please select all 4 players.';errEl.style.display='';return;
   }
   if(!validateSelections())return;
+
+  // Validate badminton score rules
+  const scoreCheck=validateBadmintonScore(scoreA,scoreB);
+  if(!scoreCheck.valid){
+    errEl.textContent=scoreCheck.msg;errEl.style.display='';return;
+  }
 
   const ss=document.getElementById('saveStatus');
 
@@ -2655,6 +2686,29 @@ function resetGameForm(){
   lockPlayer1();
 }
 
+function liveScoreCheck(){
+  const a=document.getElementById('scoreA')?.value;
+  const b=document.getElementById('scoreB')?.value;
+  const el=document.getElementById('scoreValidMsg');
+  if(!el)return;
+  if(a===''||b===''){el.textContent='';return;}
+  const r=validateBadmintonScore(a,b);
+  if(!r.valid){
+    el.textContent='⚠ '+r.msg;
+    el.style.color='var(--danger)';
+  } else if(r.warn){
+    el.textContent='ℹ '+r.warn;
+    el.style.color='var(--warn)';
+  } else {
+    // Show winner
+    const av=parseInt(a),bv=parseInt(b);
+    const tA=document.getElementById('teamA1Sel')?.options[document.getElementById('teamA1Sel')?.selectedIndex]?.text||'Team A';
+    const tB=document.getElementById('teamA2Sel')?.value?'Team A':'Team B';
+    el.textContent='✅ Valid score';
+    el.style.color='var(--accent)';
+  }
+}
+
 function lockPlayer1(){
   const mp=myPlayer();if(!mp)return;
   const el=document.getElementById('teamA1Sel');
@@ -2996,6 +3050,28 @@ async function saveSummaryEdit(gameId){
 // ============================================================
 // CORRECTIONS
 // ============================================================
+function updateCorrWinner(){
+  const g=S.games.find(x=>x.id===corrGameId);if(!g)return;
+  const el=document.getElementById('corrWinnerIndicator');if(!el)return;
+  const aScore=parseInt(document.getElementById('cA0')?.value)||0;
+  const bScore=parseInt(document.getElementById('cB0')?.value)||0;
+  const tA=g.teamA.map(pname).join(' & ');
+  const tB=g.teamB.map(pname).join(' & ');
+  if(aScore>bScore){
+    el.innerHTML='🏆 <strong>'+tA+'</strong> wins '+aScore+'-'+bScore;
+    el.style.color='var(--accent)';
+  } else if(bScore>aScore){
+    el.innerHTML='🏆 <strong>'+tB+'</strong> wins '+bScore+'-'+aScore;
+    el.style.color='var(--accent)';
+  } else if(aScore===bScore&&aScore>0){
+    el.innerHTML='🤝 Draw '+aScore+'-'+bScore;
+    el.style.color='var(--warn)';
+  } else {
+    el.innerHTML='Enter scores above';
+    el.style.color='var(--text3)';
+  }
+}
+
 function openCorrModal(gameId){
   const g=S.games.find(x=>x.id===gameId);if(!g)return;
   corrGameId=gameId;
@@ -3004,13 +3080,27 @@ function openCorrModal(gameId){
     <div style="font-size:11px;color:var(--text2);margin-top:4px;">Recorded: ${g.sets.map((s,i)=>`Set ${i+1}: ${s.a}–${s.b}`).join(' · ')}</div>
     <div style="font-size:10px;color:var(--text3);margin-top:2px;">${fmt(g.date)}</div>`;
   document.getElementById('corrSetInputs').innerHTML=g.sets.map((s,i)=>`
-    <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:9px;align-items:center;margin-bottom:8px;">
-      <div><label style="font-size:9px;">Set ${i+1} — ${tA}</label>
-        <input type="number" min="0" max="50" value="${s.a}" id="cA${i}" class="score-input"/></div>
-      <span style="color:var(--text3);font-size:16px;margin-top:15px;">–</span>
-      <div><label style="font-size:9px;">${tB}</label>
-        <input type="number" min="0" max="50" value="${s.b}" id="cB${i}" class="score-input"/></div>
+    <div style="margin-bottom:12px;">
+      <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:9px;align-items:center;">
+        <div>
+          <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px;">${tA}</label>
+          <input type="number" inputmode="numeric" min="0" max="99" value="${s.a}" id="cA${i}"
+            class="score-input" oninput="updateCorrWinner()" style="width:100%;"/>
+        </div>
+        <span style="color:var(--text3);font-size:18px;padding-top:20px;text-align:center;">–</span>
+        <div>
+          <label style="font-size:10px;color:var(--text2);display:block;margin-bottom:4px;">${tB}</label>
+          <input type="number" inputmode="numeric" min="0" max="99" value="${s.b}" id="cB${i}"
+            class="score-input" oninput="updateCorrWinner()" style="width:100%;"/>
+        </div>
+      </div>
     </div>`).join('');
+  // Add winner indicator
+  const winnerDiv=document.createElement('div');
+  winnerDiv.id='corrWinnerIndicator';
+  winnerDiv.style.cssText='text-align:center;font-size:12px;padding:8px;border-radius:8px;background:var(--surface);margin-top:4px;';
+  document.getElementById('corrSetInputs').appendChild(winnerDiv);
+  updateCorrWinner();
   document.getElementById('corrReason').value='';openModal('corrModal');
 }
 
@@ -3018,8 +3108,16 @@ async function submitCorr(){
   const g=S.games.find(x=>x.id===corrGameId);if(!g)return;
   const reason=document.getElementById('corrReason').value.trim();
   if(!reason){alert('Please enter a reason.');return;}
-  const ns=g.sets.map((s,i)=>({a:parseInt(document.getElementById('cA'+i).value)||0,b:parseInt(document.getElementById('cB'+i).value)||0}));
+  const ns=g.sets.map((s,i)=>({
+    a:Math.max(0,parseInt((document.getElementById('cA'+i)?.value||'').replace(/[^0-9]/g,''))||0),
+    b:Math.max(0,parseInt((document.getElementById('cB'+i)?.value||'').replace(/[^0-9]/g,''))||0)
+  }));
   if(ns.every((s,i)=>s.a===g.sets[i].a&&s.b===g.sets[i].b)){alert('Scores are the same as recorded!');return;}
+  // Validate proposed scores
+  for(const s of ns){
+    const r=validateBadmintonScore(s.a,s.b);
+    if(!r.valid){alert('Invalid score: '+r.msg);return;}
+  }
   const corr={id:'c_'+Date.now(),gameId:corrGameId,raisedBy:S.currentUser.id,raisedByName:S.currentUser.name,
     originalSets:g.sets,proposedSets:ns,reason,status:'pending',raisedAt:new Date().toISOString(),resolvedBy:null,resolvedAt:null};
   S.corrections.push(corr);save();closeModal('corrModal');updateBadge();
@@ -3082,16 +3180,29 @@ function openReview(cid){
 }
 
 async function resolveCorr(decision){
-  const c=S.corrections.find(x=>x.id===reviewCorrId);if(!c)return;
-  c.status=decision;c.resolvedBy=S.currentUser.id;c.resolvedAt=new Date().toISOString();
-  if(decision==='approved'){const g=S.games.find(x=>x.id===c.gameId);if(g)g.sets=c.proposedSets;}
+  const corr=S.corrections.find(x=>x.id===reviewCorrId);if(!corr)return;
+  corr.status=decision;corr.resolvedBy=S.currentUser.id;corr.resolvedAt=new Date().toISOString();
+  if(decision==='approved'){
+    const g=S.games.find(x=>x.id===corr.gameId);
+    if(g){
+      g.sets=corr.proposedSets;
+      // Determine winner from proposed scores for clarity
+      const sc=corr.proposedSets[0]||{a:0,b:0};
+      const tA=g.teamA.map(pname).join(' & ');
+      const tB=g.teamB.map(pname).join(' & ');
+      const winner=sc.a>sc.b?tA:sc.b>sc.a?tB:'Draw';
+      console.log('Dispute approved. New scores:',sc,'Winner:',winner);
+    }
+  }
   save();closeModal('reviewModal');updateBadge();
   loading(true,'Saving…');
-  await sheetsUpdateCorrStatus(c.id,decision,c.resolvedAt);
-  if(decision==='approved'){const g=S.games.find(x=>x.id===c.gameId);if(g)await sheetsUpdateGameSets(c.gameId,g.sets);}
+  // Push full updated data to Firebase so all devices get the corrected scores
+  await ghWriteAll();
   loading(false);
   renderCorrections();renderHistory();renderDashboard();renderLeaderboard('today');if(isAdmin())renderAdmin();
-  alert(decision==='approved'?'✅ Approved — scores updated.':'❌ Correction rejected.');}
+  const msg=decision==='approved'?'✅ Scores updated and saved to Firebase.':'❌ Correction rejected.';
+  alert(msg);
+}
 
 // ============================================================
 // PLAYERS
