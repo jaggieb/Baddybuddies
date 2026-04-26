@@ -502,8 +502,15 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     <!-- DASHBOARD -->
     <div id="page-dashboard" class="page active">
       <div id="syncBanner" style="display:none;"></div>
+      <div id="debugPanel" style="background:#1a2236;border:1px solid #4d9eff;border-radius:8px;padding:10px;margin-bottom:10px;font-size:11px;font-family:monospace;color:#8899b5;display:none;max-height:200px;overflow-y:auto;"></div>
       <div class="section-title" id="dashGreet">Good Game!</div>
       <div class="section-sub" id="dashDate"></div>
+      <div style="display:flex;gap:8px;margin-bottom:8px;">
+        <button onclick="document.getElementById('debugPanel').style.display=document.getElementById('debugPanel').style.display==='none'?'block':'none'" 
+          style="font-size:10px;padding:3px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--text3);cursor:pointer;">🔍 Debug</button>
+        <button onclick="forceSyncNow()" 
+          style="font-size:10px;padding:3px 8px;background:var(--surface);border:1px solid var(--border);border-radius:4px;color:var(--accent);cursor:pointer;">🔄 Force Sync</button>
+      </div>
 
       <!-- Dashboard Tabs -->
       <div style="display:flex;gap:0;margin-bottom:16px;background:var(--surface);border-radius:10px;padding:3px;">
@@ -1040,7 +1047,8 @@ let _lastFetchTime=0;
 let _cachedData=null;
 
 async function waitForFirebase(timeoutMs=15000){
-  if(window._fbDb)return true;
+  if(window._fbDb){dbg&&dbg('Firebase already ready');return true;}
+  dbg&&dbg('Waiting for Firebase...');
   return new Promise(resolve=>{
     // Poll every 100ms for Firebase to be ready
     const start=Date.now();
@@ -1079,15 +1087,25 @@ async function jsonbinWrite(data){
   }
 }
 
+function dbg(msg){
+  console.log('[BB]',msg);
+  const dp=document.getElementById('debugPanel');
+  if(dp){dp.style.display='block';dp.innerHTML+=new Date().toTimeString().slice(0,8)+' '+msg+'<br>';dp.scrollTop=dp.scrollHeight;}
+}
+
 // Subscribe to real-time updates from Firebase
 // This is the PRIMARY data source — fires immediately with current data
 function subscribeToFirebase(){
-  if(!window._fbDb||_fbListener)return;
+  if(!window._fbDb){dbg('ERROR: _fbDb not ready');return;}
+  if(_fbListener){dbg('Already subscribed');return;}
+  dbg('Subscribing to Firebase...');
   const dbRef=window._fbDb.ref('shuttleLeague');
   _fbListener=dbRef.on('value',snap=>{
-    if(!snap.exists())return;
+    dbg('Firebase data received. exists='+snap.exists());
+    if(!snap.exists()){dbg('Database is EMPTY');return;}
     const data=snap.val();
-    if(!data)return;
+    if(!data){dbg('Data is null');return;}
+    dbg('Players: '+(data.players||[]).length+' Games: '+(data.games||[]).length);
 
     // Apply data
     if(Array.isArray(data.players)&&data.players.length){
@@ -2684,6 +2702,33 @@ function copyAISummary(){copyDaySummary();}
 // ============================================================
 // DASHBOARD
 // ============================================================
+async function forceSyncNow(){
+  dbg('Force sync started...');
+  dbg('Firebase ready: '+!!window._fbDb);
+  dbg('Players in S: '+S.players.length);
+  dbg('Games in S: '+S.games.length);
+  if(!window._fbDb){dbg('ERROR: Firebase not initialized!');return;}
+  try{
+    const snap=await window._fbDb.ref('shuttleLeague').once('value');
+    dbg('Snap exists: '+snap.exists());
+    if(snap.exists()){
+      const d=snap.val();
+      dbg('DB Players: '+(d.players||[]).length+' Games: '+(d.games||[]).length);
+      if(Array.isArray(d.players)&&d.players.length){
+        S.players=d.players.filter(p=>p&&p.id).map(p=>{const lp=S.players.find(x=>x.id===p.id);return{...p,photoBase64:lp?.photoBase64||null};});
+        ensureAdminExists();
+      }
+      if(Array.isArray(d.games))S.games=d.games;
+      if(Array.isArray(d.corrections))S.corrections=d.corrections;
+      save();
+      renderDashboard();renderHistory();renderLeaderboard('today');
+      renderPlayers();renderCorrections();populateHF();
+      if(isAdmin())renderAdmin();updateBadge();
+      dbg('Render complete. Players: '+S.players.length);
+    }
+  }catch(e){dbg('ERROR: '+e.message);}
+}
+
 let _dashTab='me';
 function switchDashTab(tab){
   _dashTab=tab;
