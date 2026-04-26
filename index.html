@@ -2697,12 +2697,35 @@ function renderHistory(){
   if(fd)games=games.filter(g=>g.date===fd);if(fp)games=games.filter(g=>g.teamA.includes(fp)||g.teamB.includes(fp));
   const mp=myPlayer(),myPid=mp?mp.id:null;
   if(!games.length){document.getElementById('historyList').innerHTML=`<div class="empty-state"><div class="empty-icon">🏸</div><div class="empty-text">No games found.</div></div>`;return;}
-  let cd=null,html='';
-  games.forEach(g=>{if(g.date!==cd){cd=g.date;html+=`<div style="font-size:11px;font-weight:700;color:var(--text2);margin:18px 0 9px;text-transform:uppercase;letter-spacing:1px;">${fmt(g.date)}</div>`;}html+=fullGameHTML(g,myPid);});
+  // Group games by date
+  const byDate={};
+  games.forEach(g=>{
+    if(!byDate[g.date])byDate[g.date]=[];
+    byDate[g.date].push(g);
+  });
+
+  let html='';
+  Object.keys(byDate).sort((a,b)=>b.localeCompare(a)).forEach(date=>{
+    const dayGames=byDate[date];
+    html+=`<div style="font-size:11px;font-weight:700;color:var(--text2);margin:18px 0 9px;text-transform:uppercase;letter-spacing:1px;">${fmt(date)}</div>`;
+
+    // Show AI day summary ONCE at top of each day (only if summaryIsAI)
+    const aiGame=dayGames.find(g=>g.summaryIsAI&&g.summary);
+    if(aiGame){
+      html+=`<div class="summary-box ai-generated" style="margin-bottom:12px;">
+        <div class="ai-label">✨ AI Day Summary</div>
+        ${aiGame.summary}
+      </div>`;
+    }
+
+    // Show each game WITHOUT the summary (summary shown once above)
+    dayGames.forEach(g=>{ html+=fullGameHTML(g,myPid,true); });
+  });
+
   document.getElementById('historyList').innerHTML=html;
 }
 
-function fullGameHTML(g,myPid){
+function fullGameHTML(g,myPid,hideDaySummary=false){
   const inA=myPid&&g.teamA.includes(myPid);
   const aW=g.sets.filter(s=>s.a>s.b).length,bW=g.sets.filter(s=>s.b>s.a).length;
   const won=myPid?((inA&&aW>bW)||(!inA&&bW>aW)):null;
@@ -2719,14 +2742,13 @@ function fullGameHTML(g,myPid){
       </div>
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;">
         ${hasDisp?'<span class="disputed-badge">⚠ DISPUTED</span>':''}
-        ${hasSummary?`<span class="${g.summaryIsAI?'ai-badge':'tag tag-g'}">${g.summaryIsAI?'✨ AI':'📝'} Summary</span>`:''}
+        ${hasSummary&&(!hideDaySummary||!g.summaryIsAI)?`<span class="${g.summaryIsAI?'ai-badge':'tag tag-g'}">${g.summaryIsAI?'✨ AI':'📝'} Summary</span>`:''}
         ${won===true?'<span class="win-badge">WIN</span>':won===false?'<span class="lose-badge">LOSS</span>':''}
       </div>
     </div>
     <div style="margin-top:7px;">${sc}</div>
-    ${hasSummary?`<div class="summary-box${g.summaryIsAI?' ai-generated':''}" style="margin-top:8px;font-size:12px;">
+    ${hasSummary&&(!hideDaySummary||!g.summaryIsAI)?`<div class="summary-box${g.summaryIsAI?' ai-generated':''}" style="margin-top:8px;font-size:12px;">
       ${g.summaryIsAI?'<div class="ai-label">✨ AI</div>':''}${g.summary}
-      ${isInvolved&&!g.summary?'':''}
     </div>`:''}
     ${!hasSummary&&isInvolved?`<button class="btn btn-purple btn-sm" onclick="openSummaryEdit('${g.id}')" style="margin-top:8px;">+ Add Summary</button>`:''}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px;flex-wrap:wrap;gap:7px;">
