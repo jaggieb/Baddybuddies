@@ -1135,17 +1135,19 @@ function dbg(msg){
 // This is the PRIMARY data source — fires immediately with current data
 function subscribeToFirebase(){
   if(!window._fbDb){dbg('ERROR: _fbDb not ready');return;}
-  if(_fbListener){dbg('Already subscribed');return;}
+  // Unsubscribe any existing listener first
+  if(_fbListener){
+    try{window._fbDb.ref('shuttleLeague').off('value',_fbListener);}catch(e){}
+    _fbListener=null;
+  }
   dbg('Subscribing to Firebase...');
   const dbRef=window._fbDb.ref('shuttleLeague');
-  _fbListener=dbRef.on('value',snap=>{
+  const handler=snap=>{
     dbg('Firebase data received. exists='+snap.exists());
     if(!snap.exists()){dbg('Database is EMPTY');return;}
     const data=snap.val();
-    if(!data){dbg('Data is null');return;}
+    if(!data)return;
     dbg('Players: '+(data.players||[]).length+' Games: '+(data.games||[]).length);
-
-    // Apply data
     if(Array.isArray(data.players)&&data.players.length){
       const deletedIds=new Set(S.deletedPlayerIds||[]);
       S.players=data.players.filter(p=>p&&p.id&&!deletedIds.has(p.id))
@@ -1155,18 +1157,19 @@ function subscribeToFirebase(){
     if(Array.isArray(data.games))S.games=data.games;
     if(Array.isArray(data.corrections))S.corrections=data.corrections;
     save();updateBadge();
-
-    // Re-render all pages with fresh data
     renderDashboard();renderHistory();renderLeaderboard('today');
     renderPlayers();renderCorrections();populateHF();
     if(isAdmin())renderAdmin();
-  });
+  };
+  _fbListener=handler;
+  dbRef.on('value',handler);
 }
 
 function unsubscribeFromFirebase(){
-  if(window._fbDb){
-    window._fbDb.ref('shuttleLeague').off('value');
+  if(window._fbDb&&_fbListener){
+    try{window._fbDb.ref('shuttleLeague').off('value',_fbListener);}catch(e){}
     _fbListener=null;
+    dbg('Unsubscribed from Firebase');
   }
 }
 
@@ -1174,24 +1177,10 @@ let _ghLastError='';
 
 
 
-// Debounced write — batches rapid saves into one JSONbin call
-let _writeTimer=null;
-let _writeResolvers=[];
-
 async function ghWriteAll(){
-  if(!JSONBIN_ID||!JSONBIN_KEY)return{success:true,local:true};
-  return new Promise(resolve=>{
-    _writeResolvers.push(resolve);
-    if(_writeTimer)clearTimeout(_writeTimer);
-    _writeTimer=setTimeout(async()=>{
-      _writeTimer=null;
-      const resolvers=[..._writeResolvers];
-      _writeResolvers=[];
-      const players=S.players.map(p=>{const{photoBase64,...rest}=p;return rest;});
-      const result=await jsonbinWrite({players,games:S.games,corrections:S.corrections});
-      resolvers.forEach(r=>r(result));
-    },800);
-  });
+  if(!isDbConnected())return{success:true,local:true};
+  const players=S.players.map(p=>{const{photoBase64,...rest}=p;return rest;});
+  return await jsonbinWrite({players,games:S.games,corrections:S.corrections});
 }
 
 // ── callSheetsAPI — all writes go to GitHub ──
@@ -2342,9 +2331,8 @@ async function addGameToSession(){
   ss.innerHTML='<span style="color:var(--text2);">Saving…</span>';
   const r=await sheetsWriteGame(game);
   const gNum=_sessionGames.length;
-  if(r&&r.success) ss.innerHTML=`<span style="color:var(--accent);">✅ Game ${gNum} saved to GitHub!</span>`;
-  else if(r&&r.local) ss.innerHTML=`<span style="color:var(--accent);">✅ Game ${gNum} saved locally.</span>`;
-  else ss.innerHTML=`<span style="color:var(--warn);">⚠ Game ${gNum} saved locally. sync failed.</span>`;
+  if(r&&r.success) ss.innerHTML=`<span style="color:var(--accent);">✅ Game ${gNum} saved!</span>`;
+  else ss.innerHTML=`<span style="color:var(--warn);">⚠ Saved locally. Firebase sync failed.</span>`;
   setTimeout(()=>ss.innerHTML='',3000);
 
   resetGameForm();
