@@ -1601,35 +1601,77 @@ function googleBtnHTML(){
 
 async function handleGoogleUser(user){
   if(!user)return false;
+  // Always sync from Firebase first to get latest player list
   await syncFromSheets().catch(()=>{});
-  const email=user.email||'';
+  const email=(user.email||'').toLowerCase();
   const displayName=user.displayName||email.split('@')[0];
-  let player=S.players.find(p=>(p.email||'').toLowerCase()===email.toLowerCase());
-  if(!player) player=S.players.find(p=>p.googleUid===user.uid);
+
+  // Match player by: 1) googleUid 2) email 3) admin names
+  let player=S.players.find(p=>p.googleUid===user.uid);
+  if(!player) player=S.players.find(p=>(p.email||'').toLowerCase()===email);
+
+  // Admin bypass — if email matches an admin, find by adminNames
+  if(!player){
+    const adminNamesSet=getAdminNames();
+    // Check if this email belongs to an admin (by checking HARDCODED_PLAYERS or adminNames)
+    player=S.players.find(p=>adminNamesSet.has(p.name.toLowerCase()));
+    if(player&&player.email&&player.email.toLowerCase()!==email) player=null;
+  }
+
   if(player){
     if(player.status==='pending'){
-      document.getElementById('loginError').textContent='Your account is pending admin approval.';
+      const errEl=document.getElementById('loginError');
+      if(errEl)errEl.textContent='Your account is pending admin approval.';
+      const btn=document.getElementById('googleSignInBtn');
+      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
       await window._fbSignOut(window._fbAuth).catch(()=>{});
       return false;
     }
-    if(!player.googleUid){player.googleUid=user.uid;ghWriteAll().catch(()=>{});}
+    // Link Google account to player record
+    let changed=false;
+    if(!player.googleUid){player.googleUid=user.uid;changed=true;}
+    if(!player.email){player.email=email;changed=true;}
+    if(changed){save();ghWriteAll().catch(()=>{});}
     doLogin(player.name, email);
     return true;
-  } else {
-    // New user — create pending registration
-    const newPlayer={
-      id:'p_'+Date.now(),name:displayName,email,phone:'',nickname:'',pin:'',
-      color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
-      userId:'',photoBase64:null,status:'pending',googleUid:user.uid
-    };
-    S.players.push(newPlayer);save();ghWriteAll().catch(()=>{});
-    await window._fbSignOut(window._fbAuth).catch(()=>{});
-    const errEl=document.getElementById('loginError');
-    if(errEl) errEl.textContent='Welcome '+displayName+'! Your registration is pending admin approval.';
-    const btn=document.getElementById('googleSignInBtn');
-    if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
-    return false;
   }
+
+  // No match — check if admin email (jaggieb@gmail.com → Jags)
+  // Admin can always log in even if email not in records
+  const adminNamesSet=getAdminNames();
+  if(adminNamesSet.size>0){
+    // If there's only one admin and no email set, auto-match
+    const adminPlayer=S.players.find(p=>adminNamesSet.has(p.name.toLowerCase())&&!p.email&&!p.googleUid);
+    if(adminPlayer){
+      adminPlayer.email=email;
+      adminPlayer.googleUid=user.uid;
+      save();ghWriteAll().catch(()=>{});
+      doLogin(adminPlayer.name, email);
+      return true;
+    }
+  }
+
+  // Genuinely new user — create pending registration
+  const newPlayer={
+    id:'p_'+Date.now(),
+    name:displayName,
+    email:email,
+    phone:'',nickname:'',pin:'',
+    color:['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff'][Math.floor(Math.random()*5)],
+    userId:'',photoBase64:null,
+    status:'pending',
+    googleUid:user.uid
+  };
+  S.players.push(newPlayer);
+  save();
+  // Push to Firebase so admin can see it
+  await ghWriteAll().catch(()=>{});
+  await window._fbSignOut(window._fbAuth).catch(()=>{});
+  const errEl=document.getElementById('loginError');
+  if(errEl)errEl.textContent='Hi '+displayName+'! Your registration is pending admin approval.';
+  const btn=document.getElementById('googleSignInBtn');
+  if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
+  return false;
 }
 
 // Auto sign-in if Firebase auth session exists
@@ -3352,9 +3394,10 @@ async function adminDeletePlayer(id, name){
 async function manualAdminSync(){
   const btn=document.getElementById('adminSyncBtn');
   if(btn){btn.textContent='⏳ Syncing…';btn.disabled=true;}
-  loading(true,'Checking for new registrations…');
-  await syncFromSheets().catch(()=>{});
-  loading(false);
+  // Force fresh read from Firebase
+  _cachedData=null;
+  _lastFetchTime=0;
+  await syncFromSheets(true).catch(()=>{});
   renderAdmin();updateBadge();
   if(btn){btn.textContent='🔄 Refresh';btn.disabled=false;}
   const pending=S.players.filter(p=>p.status==='pending').length;
@@ -3394,13 +3437,13 @@ async function approveUser(id){
 }
 
 async function rejectUser(id,name){
-  if(!confirm('Reject and delete registration for "'+name+'"?'))return;
+  if(!confirm('Delete registration for "'+name+'"?'))return;
   S.players=S.players.filter(p=>p.id!==id);
-  save();renderAdmin();renderPlayers();
-  if(isDbConnected()){
-    callSheetsAPI('deleteRow',{tab:'Players',keyCol:'PlayerID',keyVal:id}).catch(()=>{});
-  }
-  showSyncBanner('info',name+' rejected and removed');
+  save();
+  _cachedData=null; // force fresh sync
+  await ghWriteAll().catch(()=>{});
+  renderAdmin();renderPlayers();
+  showSyncBanner('success',name+' removed ✓');
   setTimeout(()=>document.getElementById('syncBanner').style.display='none',3000);
 }
 
