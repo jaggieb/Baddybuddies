@@ -16,7 +16,7 @@
 <script type="module">
   import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
   import{getDatabase,ref,set,get,onValue,off}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
-  import{getAuth,GoogleAuthProvider,signInWithPopup,signInWithRedirect,getRedirectResult,signOut,onAuthStateChanged}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+  import{getAuth,GoogleAuthProvider,signInWithPopup,signInWithRedirect,getRedirectResult,signOut,onAuthStateChanged,setPersistence,browserLocalPersistence}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
 
   const firebaseConfig={
     apiKey:"AIzaSyAa-HRMAnNHBDEWeWRkCpWRNLfQ1fHs5VQ",
@@ -32,7 +32,12 @@
   const db=getDatabase(app);
   const auth=getAuth(app);
 
-  // Expose to global scope for use in main script
+  // Set persistence to LOCAL so auth survives page reloads
+  setPersistence(auth, browserLocalPersistence).catch(console.warn);
+
+  const googleProvider=new GoogleAuthProvider();
+  googleProvider.setCustomParameters({prompt:'select_account'});
+
   window._fbDb=db;
   window._fbAuth=auth;
   window._fbRef=ref;
@@ -40,7 +45,7 @@
   window._fbGet=get;
   window._fbOnValue=onValue;
   window._fbOff=off;
-  window._fbGoogleProvider=new GoogleAuthProvider();
+  window._fbGoogleProvider=googleProvider;
   window._fbSignInWithPopup=signInWithPopup;
   window._fbSignInWithRedirect=signInWithRedirect;
   window._fbGetRedirectResult=getRedirectResult;
@@ -48,7 +53,6 @@
   window._fbOnAuthStateChanged=onAuthStateChanged;
   window._firebaseReady=true;
   document.dispatchEvent(new Event('firebaseReady'));
-  console.log('Firebase initialized');
 </script>
 <style>
 /* ── TOKENS ── */
@@ -1558,15 +1562,23 @@ async function signInWithGoogle(){
   if(btn){btn.disabled=true;btn.innerHTML='Signing in…';}
   try{
     await waitForFirebase();
-    // Use redirect on mobile (avoids popup/sessionStorage issues)
-    const isMobile=/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    if(isMobile){
-      // Save flag so we know redirect is in progress
-      sessionStorage.setItem('googleRedirectPending','1');
+    // Always try popup first — works on most mobile Chrome versions
+    // Fall back to redirect if popup fails
+    let result=null;
+    try{
+      result=await window._fbSignInWithPopup(window._fbAuth, window._fbGoogleProvider);
+    }catch(popupErr){
+      if(popupErr.code==='auth/popup-blocked'||
+         popupErr.code==='auth/popup-closed-by-user'||
+         popupErr.code==='auth/cancelled-popup-request'){
+        throw popupErr; // user cancelled — don't fallback
+      }
+      // Popup failed for technical reason — use redirect
+      console.warn('Popup failed, using redirect:',popupErr.code);
+      localStorage.setItem('googleRedirectPending','1');
       await window._fbSignInWithRedirect(window._fbAuth, window._fbGoogleProvider);
-      return; // page will redirect and come back
+      return;
     }
-    const result=await window._fbSignInWithPopup(window._fbAuth, window._fbGoogleProvider);
     await handleGoogleUser(result.user);
   }catch(e){
     console.error('Google sign-in error:',e);
@@ -1624,25 +1636,37 @@ async function handleGoogleUser(user){
 async function checkFirebaseAuthState(){
   await waitForFirebase();
 
-  // Handle redirect result first (mobile Google sign-in)
-  try{
-    const result=await window._fbGetRedirectResult(window._fbAuth);
-    if(result&&result.user){
-      sessionStorage.removeItem('googleRedirectPending');
-      await handleGoogleUser(result.user);
-      return;
+  // Handle redirect result (used as fallback for blocked popups)
+  const redirectPending=localStorage.getItem('googleRedirectPending');
+  if(redirectPending){
+    localStorage.removeItem('googleRedirectPending');
+    try{
+      const result=await window._fbGetRedirectResult(window._fbAuth);
+      if(result&&result.user){
+        await handleGoogleUser(result.user);
+        return;
+      }
+    }catch(e){
+      console.warn('Redirect result error:',e.message);
+      const errEl=document.getElementById('loginError');
+      if(errEl) errEl.textContent='Sign-in failed: '+e.message;
+      const btn=document.getElementById('googleSignInBtn');
+      if(btn){btn.disabled=false;btn.innerHTML=googleBtnHTML();}
     }
-  }catch(e){
-    console.warn('Redirect result error:',e.message);
-    sessionStorage.removeItem('googleRedirectPending');
-    const errEl=document.getElementById('loginError');
-    if(errEl) errEl.textContent='Sign-in failed: '+e.message;
   }
 
-  // Check persistent auth state
+  // onAuthStateChanged — handles persistent sessions and auto sign-in
   window._fbOnAuthStateChanged(window._fbAuth, async(user)=>{
-    if(user&&!S.currentUser){
-      await handleGoogleUser(user);
+    if(S.currentUser)return; // already logged in
+    if(user){
+      // User has active Google session — sign in automatically
+      const loginPage=document.getElementById('loginPage');
+      const isOnLogin=loginPage&&loginPage.style.display!=='none';
+      if(isOnLogin){
+        const st=document.getElementById('loginSyncStatus');
+        if(st)st.textContent='Signing in…';
+        await handleGoogleUser(user);
+      }
     }
   });
 }
