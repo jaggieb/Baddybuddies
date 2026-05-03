@@ -482,17 +482,19 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     </div>
 
     <!-- Admin login panel (hidden by default) -->
-    <div id="adminLoginPanel" style="display:none;margin-top:12px;background:var(--surface);border:1px solid rgba(255,176,32,0.3);border-radius:14px;padding:18px;display:none;flex-direction:column;gap:12px;">
-      <div style="font-size:13px;font-weight:600;color:var(--warn);text-align:center;">🔧 Admin Access</div>
+    <div id="adminLoginPanel" style="display:none;margin-top:12px;background:var(--surface);border:1px solid rgba(255,176,32,0.3);border-radius:14px;padding:18px;">
+      <div style="font-size:13px;font-weight:600;color:var(--warn);text-align:center;margin-bottom:12px;">🔧 Admin Access</div>
       <input type="text" id="adminUserInput" placeholder="Username" autocomplete="off"
-        style="font-size:14px;" onkeydown="if(event.key==='Enter')document.getElementById('adminPassInput').focus()"/>
+        style="font-size:14px;width:100%;margin-bottom:10px;display:block;"
+        onkeydown="if(event.key==='Enter')document.getElementById('adminPassInput').focus()"/>
       <input type="password" id="adminPassInput" placeholder="Password"
-        style="font-size:14px;" onkeydown="if(event.key==='Enter')adminLogin()"/>
-      <button onclick="adminLogin()"
-        style="width:100%;padding:12px;background:var(--warn);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+        style="font-size:14px;width:100%;margin-bottom:12px;display:block;"
+        onkeydown="if(event.key==='Enter')adminLogin()"/>
+      <button id="adminLoginBtn"
+        style="width:100%;padding:12px;background:var(--warn);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:block;">
         Admin Log In
       </button>
-      <div id="adminLoginError" style="color:var(--danger);font-size:12px;text-align:center;"></div>
+      <div id="adminLoginError" style="color:var(--danger);font-size:12px;text-align:center;margin-top:8px;"></div>
     </div>
 
   </div>
@@ -1434,6 +1436,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(gb)gb.addEventListener('click',()=>signInWithGoogle());
   const pb=document.getElementById('pinLoginBtn');
   if(pb)pb.addEventListener('click',()=>pinLogin());
+  const ab=document.getElementById('adminLoginBtn');
+  if(ab)ab.addEventListener('click',()=>adminLogin());
 });
 
 // Check for registration link
@@ -1651,34 +1655,41 @@ function showFullLoginForm(){
 function toggleAdminLogin(){
   const panel=document.getElementById('adminLoginPanel');
   if(!panel)return;
-  const isShown=panel.style.display==='flex';
-  panel.style.display=isShown?'none':'flex';
-  if(!isShown) document.getElementById('adminUserInput')?.focus();
+  const isShown=panel.style.display==='block';
+  panel.style.display=isShown?'none':'block';
+  if(!isShown) setTimeout(()=>document.getElementById('adminUserInput')?.focus(),100);
 }
 
 async function adminLogin(){
   const user=(document.getElementById('adminUserInput')?.value||'').trim();
   const pass=document.getElementById('adminPassInput')?.value||'';
   const errEl=document.getElementById('adminLoginError');
+  const btn=document.getElementById('adminLoginBtn');
   if(errEl)errEl.textContent='';
+  if(!user||!pass){if(errEl)errEl.textContent='Enter username and password.';return;}
+  if(btn){btn.disabled=true;btn.textContent='Checking...';}
 
-  if(!user||!pass){
-    if(errEl)errEl.textContent='Enter username and password.';return;
+  // Sync Firebase to get latest credentials
+  if(isDbConnected()){
+    await waitForFirebase(8000);
+    await syncFromSheets().catch(()=>{});
   }
-
-  // Sync to get latest admin credentials from Firebase
-  await waitForFirebase(8000);
-  await syncFromSheets().catch(()=>{});
 
   const storedUser=S.adminUser||DEFAULT_ADMIN_USER;
   const storedPass=S.adminPass||DEFAULT_ADMIN_PASS;
 
+  if(btn){btn.disabled=false;btn.textContent='Admin Log In';}
+
   if(user!==storedUser||pass!==storedPass){
-    if(errEl)errEl.textContent='Incorrect username or password.';return;
+    if(errEl)errEl.textContent='Incorrect username or password.';
+    document.getElementById('adminPassInput').value='';
+    document.getElementById('adminPassInput').focus();
+    return;
   }
 
-  // Log in as admin — special non-player session
+  // Success — log in as admin
   S.currentUser={id:'__admin__',name:'Admin',email:'',color:'#ffb020',isAdmin:true};
+  rememberPlayerOnDevice('__admin__');
   save();
   initApp();
 }
