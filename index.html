@@ -417,28 +417,36 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     <div style="text-align:center;margin-bottom:32px;">
       <div style="font-size:56px;margin-bottom:8px;">🏸</div>
       <div style="font-size:30px;font-weight:700;letter-spacing:-0.5px;">Baddy Buddies</div>
-      <p style="font-size:13px;color:var(--text2);margin-top:6px;">Select your name and enter your PIN</p>
+      <p style="font-size:13px;color:var(--text2);margin-top:6px;">Enter your name and PIN to log in</p>
     </div>
 
-    <!-- Quick unlock button (shown if biometric enabled) -->
-    <div id="biometricBtn" style="display:none;margin-bottom:16px;">
-      <button id="biometricUnlockBtn"
-        style="width:100%;display:flex;align-items:center;justify-content:center;gap:10px;
-        background:var(--accent);color:#000;border:none;border-radius:10px;
-        padding:14px;font-size:15px;font-weight:600;cursor:pointer;">
-        🔒 <span id="biometricLabel">Quick Unlock</span>
-      </button>
+    <!-- Quick unlock — shown when device is remembered -->
+    <div id="quickLoginCard" style="display:none;margin-bottom:16px;">
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:18px;text-align:center;">
+        <div id="quickLoginAvatar" style="width:56px;height:56px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:#000;margin:0 auto 10px;"></div>
+        <div id="quickLoginName" style="font-size:16px;font-weight:600;margin-bottom:4px;"></div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:14px;">Tap to log in instantly</div>
+        <button id="quickLoginBtn" style="width:100%;padding:13px;background:var(--accent);color:#000;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">
+          🔓 Log In as <span id="quickLoginBtnName"></span>
+        </button>
+        <button onclick="showFullLoginForm()" style="width:100%;margin-top:8px;padding:8px;background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;">
+          Not you? Switch account
+        </button>
+      </div>
     </div>
 
-    <!-- Login card -->
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:14px;">
+    <!-- Full login form — shown on first use or when switching -->
+    <div id="fullLoginCard" style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:14px;">
 
-      <!-- Player name dropdown -->
-      <div>
+      <!-- Name with autocomplete suggestions -->
+      <div style="position:relative;">
         <label style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">Your Name</label>
-        <select id="pinNameInput" style="font-size:15px;width:100%;padding:12px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;color:var(--text);">
-          <option value="">Select your name…</option>
-        </select>
+        <input type="text" id="pinNameInput" placeholder="Type your name or nickname…"
+          autocomplete="off" autocorrect="off" autocapitalize="words" spellcheck="false"
+          style="font-size:15px;width:100%;"
+          oninput="onLoginNameInput()"
+          onkeydown="onLoginNameKey(event)"/>
+        <div id="nameSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface2);border:1px solid var(--border);border-radius:0 0 10px 10px;z-index:50;max-height:200px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.3);"></div>
       </div>
 
       <!-- PIN input -->
@@ -457,7 +465,7 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 
       <button type="button" id="pinLoginBtn"
         style="width:100%;padding:14px;background:var(--accent);color:#000;border:none;
-        border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:0.3px;">
+        border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;">
         Log In →
       </button>
 
@@ -465,7 +473,6 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     </div>
 
     <div id="loginSyncStatus" style="font-size:11px;color:var(--text3);text-align:center;margin-top:12px;min-height:16px;"></div>
-
   </div>
 </div>
 
@@ -1489,17 +1496,114 @@ async function quickSelectUser(uid){
   doLogin(u.name,u.email||'');
 }
 
+// ── LOGIN NAME AUTOCOMPLETE ──
+let _loginSuggestions=[];
+
 function populateLoginDropdown(){
-  const sel=document.getElementById('pinNameInput');
-  if(!sel||sel.tagName!=='SELECT')return;
-  const current=sel.value;
-  // Sort players alphabetically, exclude guests
-  const players=S.players
+  // Build suggestions list from approved players
+  _loginSuggestions=S.players
     .filter(p=>(p.status==='approved'||!p.status)&&!p.id.startsWith('guest_'))
     .sort((a,b)=>(a.nickname||a.name).localeCompare(b.nickname||b.name));
-  sel.innerHTML='<option value="">Select your name…</option>'+
-    players.map(p=>`<option value="${p.name}">${p.nickname||p.name}</option>`).join('');
-  if(current)sel.value=current;
+}
+
+function onLoginNameInput(){
+  const inp=document.getElementById('pinNameInput');
+  const box=document.getElementById('nameSuggestions');
+  if(!inp||!box)return;
+  const q=inp.value.toLowerCase().trim();
+  if(!q){box.style.display='none';return;}
+  const matches=_loginSuggestions.filter(p=>
+    p.name.toLowerCase().startsWith(q)||
+    (p.nickname||'').toLowerCase().startsWith(q)||
+    p.name.toLowerCase().includes(q)||
+    (p.nickname||'').toLowerCase().includes(q)
+  ).slice(0,8);
+  if(!matches.length){box.style.display='none';return;}
+  box.style.display='block';
+  box.innerHTML=matches.map(p=>`
+    <div onclick="selectLoginName('${p.name}')"
+      style="padding:12px 16px;cursor:pointer;display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);"
+      onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background=''">
+      <div style="width:32px;height:32px;border-radius:50%;background:${p.color||'#00e5a0'};
+        display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#000;flex-shrink:0;">
+        ${ini(p.nickname||p.name)}
+      </div>
+      <div>
+        <div style="font-size:14px;font-weight:500;">${p.nickname||p.name}</div>
+        ${p.nickname&&p.nickname!==p.name?`<div style="font-size:11px;color:var(--text3);">${p.name}</div>`:''}
+      </div>
+    </div>`).join('');
+}
+
+function onLoginNameKey(e){
+  const box=document.getElementById('nameSuggestions');
+  if(e.key==='Enter'){
+    if(box&&box.style.display!=='none'){
+      const first=box.querySelector('div[onclick]');
+      if(first){first.click();return;}
+    }
+    document.getElementById('pinInput')?.focus();
+  }
+  if(e.key==='Escape'&&box)box.style.display='none';
+}
+
+function selectLoginName(name){
+  const inp=document.getElementById('pinNameInput');
+  if(inp)inp.value=name;
+  const box=document.getElementById('nameSuggestions');
+  if(box)box.style.display='none';
+  document.getElementById('pinInput')?.focus();
+}
+
+// Close suggestions when clicking outside
+document.addEventListener('click',e=>{
+  const box=document.getElementById('nameSuggestions');
+  if(box&&!box.contains(e.target)&&e.target.id!=='pinNameInput')box.style.display='none';
+});
+
+// ── DEVICE MEMORY — remember player on this device ──
+function rememberPlayerOnDevice(playerName){
+  try{localStorage.setItem('bb_remembered_player', playerName);}catch(e){}
+}
+function getRememberedPlayer(){
+  try{return localStorage.getItem('bb_remembered_player')||null;}catch(e){return null;}
+}
+function forgetDevicePlayer(){
+  try{localStorage.removeItem('bb_remembered_player');}catch(e){}
+}
+
+function showQuickLoginIfRemembered(){
+  const name=getRememberedPlayer();
+  if(!name)return;
+  const p=S.players.find(x=>x.name.toLowerCase()===name.toLowerCase());
+  if(!p||(p.status&&p.status!=='approved'))return;
+  const displayName=p.nickname||p.name;
+  // Show quick login card
+  const qc=document.getElementById('quickLoginCard');
+  const fc=document.getElementById('fullLoginCard');
+  const av=document.getElementById('quickLoginAvatar');
+  const nm=document.getElementById('quickLoginName');
+  const bn=document.getElementById('quickLoginBtnName');
+  if(qc)qc.style.display='block';
+  if(fc)fc.style.display='none';
+  if(av)av.textContent=ini(displayName);
+  if(av)av.style.background=p.color||'var(--accent)';
+  if(nm)nm.textContent=displayName;
+  if(bn)bn.textContent=displayName;
+  // Wire quick login button
+  const btn=document.getElementById('quickLoginBtn');
+  if(btn){
+    btn.onclick=()=>{
+      doLogin(p.name, p.email||'');
+    };
+  }
+}
+
+function showFullLoginForm(){
+  document.getElementById('quickLoginCard').style.display='none';
+  document.getElementById('fullLoginCard').style.display='flex';
+  forgetDevicePlayer();
+  document.getElementById('pinNameInput')?.focus();
 }
 
 function togglePinView(){
@@ -1512,7 +1616,7 @@ function togglePinView(){
 
 async function pinLogin(){
   const nameEl=document.getElementById('pinNameInput');
-  const name=(nameEl?.tagName==='SELECT'?nameEl.value:nameEl?.value||'').trim();
+  const name=(nameEl?.value||'').trim();
   const pin=(document.getElementById('pinInput')||{}).value||'';
   const errEl=document.getElementById('loginError');
   errEl.textContent='';
@@ -1754,12 +1858,11 @@ function doLogin(name, email){
     u.color=pl.color||u.color;
   }
   S.currentUser=u;
-  const remCb=document.getElementById('rememberMe');
-  if(!remCb||remCb.checked){
-    if(!S.rememberedUsers)S.rememberedUsers=[];
-    const rName=storedName.toLowerCase();
-    if(!S.rememberedUsers.includes(rName))S.rememberedUsers.push(rName);
-  }
+  // Remember this player on this device — enables quick login next time
+  rememberPlayerOnDevice(storedName);
+  if(!S.rememberedUsers)S.rememberedUsers=[];
+  const rName=storedName.toLowerCase();
+  if(!S.rememberedUsers.includes(rName))S.rememberedUsers.push(rName);
   save();
   initApp();
 }
