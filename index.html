@@ -473,6 +473,28 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
     </div>
 
     <div id="loginSyncStatus" style="font-size:11px;color:var(--text3);text-align:center;margin-top:12px;min-height:16px;"></div>
+
+    <!-- Admin login link -->
+    <div style="text-align:center;margin-top:16px;">
+      <button onclick="toggleAdminLogin()" style="background:none;border:none;color:var(--text3);font-size:11px;cursor:pointer;padding:4px 8px;">
+        🔧 Admin Login
+      </button>
+    </div>
+
+    <!-- Admin login panel (hidden by default) -->
+    <div id="adminLoginPanel" style="display:none;margin-top:12px;background:var(--surface);border:1px solid rgba(255,176,32,0.3);border-radius:14px;padding:18px;display:none;flex-direction:column;gap:12px;">
+      <div style="font-size:13px;font-weight:600;color:var(--warn);text-align:center;">🔧 Admin Access</div>
+      <input type="text" id="adminUserInput" placeholder="Username" autocomplete="off"
+        style="font-size:14px;" onkeydown="if(event.key==='Enter')document.getElementById('adminPassInput').focus()"/>
+      <input type="password" id="adminPassInput" placeholder="Password"
+        style="font-size:14px;" onkeydown="if(event.key==='Enter')adminLogin()"/>
+      <button onclick="adminLogin()"
+        style="width:100%;padding:12px;background:var(--warn);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+        Admin Log In
+      </button>
+      <div id="adminLoginError" style="color:var(--danger);font-size:12px;text-align:center;"></div>
+    </div>
+
   </div>
 </div>
 
@@ -790,6 +812,18 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
         <div id="debugPanel" style="background:#0a0f1a;border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;font-family:monospace;color:#8899b5;display:none;max-height:200px;overflow-y:auto;"></div>
       </div>
 
+      <div class="admin-section" style="border-color:rgba(255,176,32,0.2);">
+        <div class="admin-st" style="color:var(--warn);">🔐 Admin Credentials</div>
+        <p style="font-size:12px;color:var(--text2);margin-bottom:10px;">Change the admin username and password.</p>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <input type="text" id="newAdminUser" placeholder="New username" style="font-size:13px;" value=""/>
+          <input type="password" id="newAdminPass" placeholder="New password" style="font-size:13px;"/>
+          <input type="password" id="newAdminPassConfirm" placeholder="Confirm new password" style="font-size:13px;"/>
+          <button class="btn btn-warn btn-sm" onclick="changeAdminCredentials()">💾 Save New Credentials</button>
+        </div>
+        <div id="adminCredStatus" style="font-size:12px;margin-top:8px;"></div>
+      </div>
+
       <div class="admin-section" style="border-color:rgba(255,77,109,0.2);">
         <div class="admin-st" style="color:var(--danger);">🗑 Danger Zone</div>
         <p style="font-size:12px;color:var(--text2);margin-bottom:14px;">Wipe all game records from local cache and GitHub. Player profiles kept.</p>
@@ -983,7 +1017,8 @@ function getAdminNames(){
 }
 function isAdmin(){
   if(!S.currentUser)return false;
-  return getAdminNames().has(S.currentUser.name.toLowerCase());
+  if(S.currentUser.id==='__admin__'||S.currentUser.isAdmin===true)return true;
+  return getAdminNames().has((S.currentUser.name||'').toLowerCase());
 }
 function isUserAdmin(user){
   if(!user)return false;
@@ -1181,7 +1216,11 @@ let _ghLastError='';
 async function ghWriteAll(){
   if(!isDbConnected())return{success:true,local:true};
   const players=S.players.map(p=>{const{photoBase64,...rest}=p;return rest;});
-  return await jsonbinWrite({players,games:S.games,corrections:S.corrections});
+  return await jsonbinWrite({
+    players,games:S.games,corrections:S.corrections,
+    adminUser:S.adminUser||DEFAULT_ADMIN_USER,
+    adminPass:S.adminPass||DEFAULT_ADMIN_PASS
+  });
 }
 
 // ── callSheetsAPI — all writes go to GitHub ──
@@ -1361,8 +1400,10 @@ async function sheetsLoadAll(){
 
 // No hardcoded players — all players managed via Firebase
 const HARDCODED_PLAYERS = [];
-// Admin email — this email always gets admin rights on first login
-const ADMIN_EMAIL = 'jaggieb@gmail.com';
+// Separate admin account — not a player
+// Credentials stored in Firebase under 'adminCredentials'
+const DEFAULT_ADMIN_USER = 'admin';
+const DEFAULT_ADMIN_PASS = 'admin';
 
 // ============================================================
 // ADMIN BOOTSTRAP
@@ -1372,7 +1413,7 @@ const ADMIN_NAME='jags';
 function ensureAdminExists(){
   if(!S.adminNames)S.adminNames=[];
   S.adminNames=[...new Set(S.adminNames.map(n=>n.toLowerCase().trim()).filter(Boolean))];
-  // Keep all admins approved
+  // Keep all player-admins approved
   S.adminNames.forEach(adminName=>{
     const p=S.players.find(x=>x.name.toLowerCase()===adminName);
     if(p&&p.status!=='approved') p.status='approved';
@@ -1606,6 +1647,42 @@ function showFullLoginForm(){
   document.getElementById('pinNameInput')?.focus();
 }
 
+// ── ADMIN LOGIN ──
+function toggleAdminLogin(){
+  const panel=document.getElementById('adminLoginPanel');
+  if(!panel)return;
+  const isShown=panel.style.display==='flex';
+  panel.style.display=isShown?'none':'flex';
+  if(!isShown) document.getElementById('adminUserInput')?.focus();
+}
+
+async function adminLogin(){
+  const user=(document.getElementById('adminUserInput')?.value||'').trim();
+  const pass=document.getElementById('adminPassInput')?.value||'';
+  const errEl=document.getElementById('adminLoginError');
+  if(errEl)errEl.textContent='';
+
+  if(!user||!pass){
+    if(errEl)errEl.textContent='Enter username and password.';return;
+  }
+
+  // Sync to get latest admin credentials from Firebase
+  await waitForFirebase(8000);
+  await syncFromSheets().catch(()=>{});
+
+  const storedUser=S.adminUser||DEFAULT_ADMIN_USER;
+  const storedPass=S.adminPass||DEFAULT_ADMIN_PASS;
+
+  if(user!==storedUser||pass!==storedPass){
+    if(errEl)errEl.textContent='Incorrect username or password.';return;
+  }
+
+  // Log in as admin — special non-player session
+  S.currentUser={id:'__admin__',name:'Admin',email:'',color:'#ffb020',isAdmin:true};
+  save();
+  initApp();
+}
+
 function togglePinView(){
   const inp=document.getElementById('pinInput');
   const eye=document.getElementById('pinEye');
@@ -1623,10 +1700,9 @@ async function pinLogin(){
   if(!name){errEl.textContent='Please enter your name.';return;}
   const nl=name.toLowerCase();
 
-  // Block admin from PIN login
-  ensureAdminExists();
-  if(getAdminNames().has(nl)){
-    errEl.textContent='Admins must sign in with Google.';return;
+  // Admin must use the admin login panel, not player login
+  if(nl==='admin'){
+    errEl.textContent='Use the Admin Login button below to log in as admin.';return;
   }
 
   // Wait for Firebase then sync to get latest players
@@ -2382,7 +2458,12 @@ function loadTodaySessionGames(){
 function initForm(){
   const mp=myPlayer();
   const myPid=mp?mp.id:'';
-  const approved=S.players.filter(p=>p.status==='approved'||!p.status);
+  // Exclude guest players and admin-only accounts from dropdowns
+  const approved=S.players.filter(p=>
+    (p.status==='approved'||!p.status)&&
+    !p.id.startsWith('guest_')&&
+    p.id!=='__admin__'
+  );
 
   // Player 1 (Team A slot 1) = logged-in user, locked
   // First populate with all approved players so the option exists
@@ -3144,7 +3225,12 @@ function fullGameHTML(g,myPid,hideDaySummary=false){
   </div>`;}
 
 function populateHF(){
-  const approved=S.players.filter(p=>p.status==='approved'||!p.status);
+  // Exclude guest players and admin-only accounts from dropdowns
+  const approved=S.players.filter(p=>
+    (p.status==='approved'||!p.status)&&
+    !p.id.startsWith('guest_')&&
+    p.id!=='__admin__'
+  );
   document.getElementById('hfp').innerHTML='<option value="">All Players</option>'+approved.map(p=>`<option value="${p.id}">${p.nickname||p.name}</option>`).join('');}
 
 async function delGame(id){
@@ -3960,6 +4046,26 @@ function updateAdminName(){
   st.style.color='var(--accent)';st.textContent='✅ Name updated to '+newName+'!';
   document.getElementById('adminNameInput').value='';
   setTimeout(()=>{st.textContent='';renderAdmin();renderPlayers();initForm();populateHF();},1500);
+}
+
+async function changeAdminCredentials(){
+  const newUser=(document.getElementById('newAdminUser')?.value||'').trim();
+  const newPass=document.getElementById('newAdminPass')?.value||'';
+  const confirm=document.getElementById('newAdminPassConfirm')?.value||'';
+  const st=document.getElementById('adminCredStatus');
+
+  if(!newUser||!newPass){if(st)st.innerHTML='<span style="color:var(--danger)">Enter username and password.</span>';return;}
+  if(newPass!==confirm){if(st)st.innerHTML='<span style="color:var(--danger)">Passwords do not match.</span>';return;}
+  if(newUser.toLowerCase()==='admin'&&newPass==='admin'){if(st)st.innerHTML='<span style="color:var(--warn)">Please choose different credentials from the default.</span>';return;}
+
+  S.adminUser=newUser;
+  S.adminPass=newPass;
+  save();
+  await ghWriteAll().catch(()=>{});
+  if(st)st.innerHTML='<span style="color:var(--accent)">✅ Admin credentials updated!</span>';
+  document.getElementById('newAdminUser').value='';
+  document.getElementById('newAdminPass').value='';
+  document.getElementById('newAdminPassConfirm').value='';
 }
 
 async function clearAllGames(){
