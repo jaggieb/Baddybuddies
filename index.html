@@ -490,7 +490,7 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
       <input type="password" id="adminPassInput" placeholder="Password"
         style="font-size:14px;width:100%;margin-bottom:12px;display:block;"
         onkeydown="if(event.key==='Enter')adminLogin()"/>
-      <button id="adminLoginBtn"
+      <button onclick="adminLogin()"
         style="width:100%;padding:12px;background:var(--warn);color:#000;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;display:block;">
         Admin Log In
       </button>
@@ -666,6 +666,17 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
         <div style="background:rgba(199,125,255,0.06);border:1px solid rgba(199,125,255,0.15);border-radius:10px;padding:16px;margin-bottom:16px;">
           <div class="form-group" style="margin-bottom:14px;">
             <label style="margin-bottom:7px;display:block;">📝 Day Notes <span style="font-size:10px;color:var(--text3);">(optional — used for AI summary)</span></label>
+            <!-- Opener keyword chips -->
+            <div style="margin-bottom:8px;">
+              <div style="font-size:10px;color:var(--text3);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px;">Quick opener (tap to use):</div>
+              <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                <button class="opener-chip" onclick="setOpener(this)" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);">🎲 Crazy Morning!</button>
+                <button class="opener-chip" onclick="setOpener(this)" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);">🌙 Crazy morning after a night of intense revelries.</button>
+                <button class="opener-chip" onclick="setOpener(this)" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);">☀️ Bright and early!</button>
+                <button class="opener-chip" onclick="setOpener(this)" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);">🏆 Championship vibes today.</button>
+                <button class="opener-chip" onclick="setOpener(this)" style="font-size:11px;padding:4px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;cursor:pointer;color:var(--text2);">💪 Sweat and glory!</button>
+              </div>
+            </div>
             <textarea id="dayNotes" placeholder="Overall highlights, standout moments, MVP of the day…" style="min-height:70px;"></textarea>
           </div>
           <div style="display:flex;gap:7px;flex-wrap:wrap;">
@@ -967,6 +978,7 @@ const PROXY_URL     = '';
 let S={
   currentUser:null,players:[],games:[],knownUsers:[],rememberedUsers:[],biometricEnabled:false,
   adminUserIds:[],adminNames:[],corrections:[],deletedPlayerIds:[],
+  adminUser:'admin',adminPass:'admin',
 
   anthropicKey:'',
   theme:'dark'
@@ -979,8 +991,9 @@ function save(){localStorage.setItem(SK,JSON.stringify(S));}
 function load(){
   const r=localStorage.getItem(SK);
   if(r){try{const p=JSON.parse(r);S={...S,...p};}catch(e){}}
-  // Normalise adminNames to lowercase, remove duplicates
-  if(S.adminNames) S.adminNames=[...new Set(S.adminNames.map(n=>n.toLowerCase().trim()))];
+  // adminNames is legacy — no longer used for player-based admin
+  // Admin access is via the separate admin account (__admin__)
+  S.adminNames=[];
   // Backwards compat: players added by admin before approval flow existed are approved
   if(S.players) S.players.forEach(p=>{
     if(!p.status){
@@ -1019,8 +1032,7 @@ function getAdminNames(){
 }
 function isAdmin(){
   if(!S.currentUser)return false;
-  if(S.currentUser.id==='__admin__'||S.currentUser.isAdmin===true)return true;
-  return getAdminNames().has((S.currentUser.name||'').toLowerCase());
+  return S.currentUser.id==='__admin__'||S.currentUser.isAdmin===true;
 }
 function isUserAdmin(user){
   if(!user)return false;
@@ -1274,16 +1286,17 @@ function generateLocalSummary(prompt){
 
     if(style==='short'){
       const verdict=wins>losses?'strong day':losses>wins?'tough day':'mixed day';
-      return playerName+' had a '+verdict+' — '+wins+'W/'+losses+'L from '+total+' game'+(total!==1?'s':'')+'. '+
+      return (openerLine?openerLine+' ':'')+playerName+' had a '+verdict+' — '+wins+'W/'+losses+'L from '+total+' game'+(total!==1?'s':'')+'. '+
         (games[0]?'First: '+games[0].myTeam+' vs '+games[0].oppTeam+', '+games[0].myScore+'-'+games[0].oppScore+' ('+games[0].result+').':'');
     }
 
     if(style==='funny'){
-      let s=rand([
+      const funnyDefault=rand([
         '🏸 '+playerName+' hit the courts today and the shuttles were flying!',
         '⚡ Another day, another drama — '+playerName+' brought the energy!',
         '🎭 The court diary of '+playerName+': a tale of sweat, smashes, and shuttlecocks.',
-      ])+' ';
+      ]);
+      let s=(openerLine?openerLine+' ':funnyDefault+' ');
       games.forEach((g,i)=>{
         const emoji=g.result==='WON'?'✅':g.result==='LOST'?'❌':'🤝';
         s+='Game '+(i+1)+': '+g.myTeam+' vs '+g.oppTeam+' ended '+g.myScore+'-'+g.oppScore+' '+emoji+'. ';
@@ -1296,7 +1309,7 @@ function generateLocalSummary(prompt){
     }
 
     if(style==='elaborate'){
-      let s=playerName+' played '+total+' game'+(total!==1?'s':'')+
+      let s=(openerLine?openerLine+' ':'')+playerName+' played '+total+' game'+(total!==1?'s':'')+
         (dt?' on '+dt:'')+', finishing with '+wins+' win'+(wins!==1?'s':'')+
         ', '+losses+' loss'+(losses!==1?'es':'')+', and '+draws+' draw'+(draws!==1?'s':'')+
         '. Win rate: '+winRate+'%.\n\n';
@@ -1316,7 +1329,7 @@ function generateLocalSummary(prompt){
     }
 
     // NORMAL
-    let s=playerName+' played '+total+' game'+(total!==1?'s':'')+(dt?' on '+dt:'')+'. ';
+    let s=(openerLine?openerLine+' ':'')+playerName+' played '+total+' game'+(total!==1?'s':'')+(dt?' on '+dt:'')+'. ';
     games.forEach((g,i)=>{
       s+='Game '+(i+1)+': '+g.myTeam+(g.result==='WON'?' beat ':' lost to ')+g.oppTeam+' '+g.myScore+'-'+g.oppScore+'. ';
     });
@@ -1410,7 +1423,6 @@ const DEFAULT_ADMIN_PASS = 'admin';
 // ============================================================
 // ADMIN BOOTSTRAP
 // ============================================================
-const ADMIN_NAME='jags';
 
 function ensureAdminExists(){
   if(!S.adminNames)S.adminNames=[];
@@ -1436,8 +1448,7 @@ document.addEventListener('DOMContentLoaded',()=>{
   if(gb)gb.addEventListener('click',()=>signInWithGoogle());
   const pb=document.getElementById('pinLoginBtn');
   if(pb)pb.addEventListener('click',()=>pinLogin());
-  const ab=document.getElementById('adminLoginBtn');
-  if(ab)ab.addEventListener('click',()=>adminLogin());
+
 });
 
 // Check for registration link
@@ -1656,42 +1667,49 @@ function toggleAdminLogin(){
   const panel=document.getElementById('adminLoginPanel');
   if(!panel)return;
   const isShown=panel.style.display==='block';
-  panel.style.display=isShown?'none':'block';
+  panel.style.cssText=isShown?
+    'display:none;margin-top:12px;background:var(--surface);border:1px solid rgba(255,176,32,0.3);border-radius:14px;padding:18px;':
+    'display:block;margin-top:12px;background:var(--surface);border:1px solid rgba(255,176,32,0.3);border-radius:14px;padding:18px;';
   if(!isShown) setTimeout(()=>document.getElementById('adminUserInput')?.focus(),100);
 }
 
-async function adminLogin(){
-  const user=(document.getElementById('adminUserInput')?.value||'').trim();
-  const pass=document.getElementById('adminPassInput')?.value||'';
-  const errEl=document.getElementById('adminLoginError');
-  const btn=document.getElementById('adminLoginBtn');
-  if(errEl)errEl.textContent='';
-  if(!user||!pass){if(errEl)errEl.textContent='Enter username and password.';return;}
-  if(btn){btn.disabled=true;btn.textContent='Checking...';}
+function adminLogin(){
+  try{
+    const user=(document.getElementById('adminUserInput')?.value||'').trim();
+    const pass=(document.getElementById('adminPassInput')?.value||'');
+    const errEl=document.getElementById('adminLoginError');
+    if(errEl)errEl.textContent='';
 
-  // Sync Firebase to get latest credentials
-  if(isDbConnected()){
-    await waitForFirebase(8000);
-    await syncFromSheets().catch(()=>{});
+    if(!user||!pass){
+      if(errEl)errEl.textContent='Enter username and password.';
+      return;
+    }
+
+    const storedUser=S.adminUser||'admin';
+    const storedPass=S.adminPass||'admin';
+
+    if(user!==storedUser||pass!==storedPass){
+      if(errEl)errEl.textContent='Incorrect username or password.';
+      const passEl=document.getElementById('adminPassInput');
+      if(passEl){passEl.value='';passEl.focus();}
+      return;
+    }
+
+    // Success
+    S.currentUser={id:'__admin__',name:'Admin',email:'',color:'#ffb020',isAdmin:true};
+    save();
+    const lp=document.getElementById('loginPage');
+    if(lp)lp.style.display='none';
+    const ma=document.getElementById('mainApp');
+    if(ma)ma.style.display='block';
+    const bn=document.getElementById('bottomNav');
+    if(bn)bn.style.display='flex';
+    showPage('admin');
+    renderAdmin();
+    updateBadge();
+  }catch(e){
+    alert('Login error: '+e.message);
   }
-
-  const storedUser=S.adminUser||DEFAULT_ADMIN_USER;
-  const storedPass=S.adminPass||DEFAULT_ADMIN_PASS;
-
-  if(btn){btn.disabled=false;btn.textContent='Admin Log In';}
-
-  if(user!==storedUser||pass!==storedPass){
-    if(errEl)errEl.textContent='Incorrect username or password.';
-    document.getElementById('adminPassInput').value='';
-    document.getElementById('adminPassInput').focus();
-    return;
-  }
-
-  // Success — log in as admin
-  S.currentUser={id:'__admin__',name:'Admin',email:'',color:'#ffb020',isAdmin:true};
-  rememberPlayerOnDevice('__admin__');
-  save();
-  initApp();
 }
 
 function togglePinView(){
@@ -1711,9 +1729,9 @@ async function pinLogin(){
   if(!name){errEl.textContent='Please enter your name.';return;}
   const nl=name.toLowerCase();
 
-  // Admin must use the admin login panel, not player login
+  // 'admin' username is reserved for the admin account
   if(nl==='admin'){
-    errEl.textContent='Use the Admin Login button below to log in as admin.';return;
+    errEl.textContent='Use the 🔧 Admin Login button below.';return;
   }
 
   // Wait for Firebase then sync to get latest players
@@ -1733,10 +1751,7 @@ async function pinLogin(){
     errEl.textContent='Player "'+name+'" not found. Check spelling or ask your admin.';return;
   }
 
-  // Block admin by role too
-  if(isPlayerAdmin(p)){
-    errEl.textContent='Admins must sign in with Google.';return;
-  }
+
 
   if(p.status==='pending'){
     errEl.textContent='Your account is pending admin approval.';return;
@@ -1850,8 +1865,7 @@ async function handleGoogleUser(user){
         status:'approved',googleUid:user.uid
       };
       S.players.push(player);
-      if(!S.adminNames)S.adminNames=[];
-      if(!S.adminNames.includes('jags'))S.adminNames.push('jags');
+
       save();ghWriteAll().catch(()=>{});
     } else {
       // Existing player — ensure approved and linked
@@ -2184,8 +2198,8 @@ async function initApp(){
   });
   const u=S.currentUser;
   // Show nickname in header (display only — identity stays as stored name)
-  const hp=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
-  document.getElementById('headerName').textContent=(hp&&hp.nickname)||hp?.name||u.name;
+  const hp=S.currentUser.id==='__admin__'?null:S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
+  document.getElementById('headerName').textContent=S.currentUser.id==='__admin__'?'Admin':(hp&&hp.nickname)||hp?.name||u.name;
   const mp2=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase()||p.userId===u.id);
   const av=document.getElementById('headerAvatar');
   if(mp2&&mp2.photoBase64){av.innerHTML=`<img src="${mp2.photoBase64}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;av.style.background='none';}
@@ -2827,6 +2841,26 @@ async function removeSessionGame(gid){
 }
 
 // ── Generate consolidated AI summary for the whole day ──
+function setOpener(btn){
+  const notes=document.getElementById('dayNotes');
+  if(!notes)return;
+  const opener=btn.textContent.replace(/^\S+\s/,'').trim(); // strip emoji
+  // Toggle — if already has this opener, remove it
+  if(notes.value.startsWith(opener)){
+    notes.value=notes.value.slice(opener.length).trimStart();
+  } else {
+    // Remove any other opener at the start
+    document.querySelectorAll('.opener-chip').forEach(ch=>{
+      const op=ch.textContent.replace(/^[^\s]+\s/,'').trim();
+      if(notes.value.startsWith(op)) notes.value=notes.value.slice(op.length).trimStart();
+    });
+    notes.value=opener+(notes.value?' '+notes.value:'');
+  }
+  // Highlight selected chip
+  document.querySelectorAll('.opener-chip').forEach(ch=>ch.style.background='var(--surface2)');
+  if(notes.value.startsWith(opener)) btn.style.background='var(--accent-dim)';
+}
+
 async function generateDaySummary(style='normal'){
   if(!_sessionGames.length&&!S.games.length){alert('Add at least one game first.');return;}
   const btn=document.getElementById('dayAiBtn');
@@ -2892,12 +2926,18 @@ async function generateDaySummary(style='normal'){
   const tone=styleMap[style]||styleMap.normal;
   const wordLimit=style==='elaborate'?'up to 300 words':style==='short'?'under 60 words':'under 150 words';
 
+  // Extract opener if present
+  const openerMatch=notes.match(/^(Crazy Morning!|Crazy morning after a night of intense revelries[.]|Bright and early!|Championship vibes today[.]|Sweat and glory!)/i);
+  const opener=openerMatch?openerMatch[0]:'';
+  const notesBody=opener?notes.slice(opener.length).trim():notes;
+
   const prompt=`STYLE: ${style}
 Player: ${myName}
 Session date: ${dt}
+${opener?'START YOUR SUMMARY WITH THIS EXACT PHRASE: "'+opener+'"':''}
 Games:
 ${gameLines}
-${notes?'\nSession notes from player: '+notes:''}`;
+${notesBody?'\nSession notes: '+notesBody:''}`;
 
   try{
     const text=await callAI(prompt);
