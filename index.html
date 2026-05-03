@@ -410,8 +410,8 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 </div>
 
 <!-- LOGIN PAGE -->
-<div id="loginPage" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);z-index:500;overflow-y:auto;">
-  <div style="width:100%;max-width:340px;">
+<div id="loginPage" style="position:fixed;inset:0;display:flex;align-items:flex-start;justify-content:center;padding:24px;background:var(--bg);z-index:500;overflow-y:auto;box-sizing:border-box;">
+  <div style="width:100%;max-width:340px;margin:auto;">
 
     <!-- Logo -->
     <div style="text-align:center;margin-bottom:32px;">
@@ -2266,21 +2266,27 @@ async function syncFromSheets(){
         // Empty status = approved (pre-existing player)
         // Only 'pending' explicitly blocks login
         const status=sheetsStatus==='pending'?'pending':sheetsStatus==='approved'?'approved':localStatus||'approved';
+        // Support both uppercase (old Sheets) and lowercase (new Firebase JSON) field names
+        const n=row.name||row.Name||local?.name||'';
+        if(!n)return null; // skip rows with no name
         return {
-          id:row.PlayerID,
-          name:row.Name||local?.name||'',
-          email:row.Email||local?.email||'',
-          phone:row.Phone||local?.phone||'',
-          nickname:row.Nickname||local?.nickname||'',
-          pin:row.PIN!==undefined&&row.PIN!==''?String(row.PIN).trim():(local?.pin||''),
-          color:row.Color||local?.color||rcolor(0),
-          userId:row.UserID||local?.userId||'',
+          id:row.id||row.PlayerID||local?.id||'p_'+Date.now(),
+          name:n,
+          email:row.email||row.Email||local?.email||'',
+          phone:row.phone||row.Phone||local?.phone||'',
+          nickname:row.nickname||row.Nickname||local?.nickname||'',
+          pin:row.pin!==undefined&&row.pin!==''?String(row.pin).trim():
+              row.PIN!==undefined&&row.PIN!==''?String(row.PIN).trim():(local?.pin||''),
+          pinIsTemp:row.pinIsTemp||row.PinIsTemp==='yes'||false,
+          color:row.color||row.Color||local?.color||rcolor(0),
+          userId:row.userId||row.UserID||local?.userId||'',
+          googleUid:row.googleUid||local?.googleUid||'',
           photoBase64:local?.photoBase64||null,
           status:status,
           _isAdminRole:isAdminRole
         };
       });
-      S.players=newPlayers;
+      S.players=newPlayers.filter(Boolean);
       // Apply Role — update adminNames
       if(!S.adminNames)S.adminNames=[];
       newPlayers.forEach(p=>{
