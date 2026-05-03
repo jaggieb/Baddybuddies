@@ -1273,7 +1273,7 @@ function generateLocalSummary(prompt){
                      gameLineMatches[0][1].split('&')[0].trim();
     const notes=(prompt.match(/Session notes[^:]*: ([^\n]+)/)||[])[1]?.trim()||'';
     const dt=(prompt.match(/Session date: ([^\n]+)/)||[])[1]?.trim()||'';
-    const openerLine=(prompt.match(/START YOUR SUMMARY WITH THIS EXACT PHRASE: "([^"]+)"/)||[])[1]||'';
+    const openerLine=(prompt.match(/START YOUR SUMMARY WITH THIS EXACT PHRASE: ["']([^"']+)["']/i)||[])[1]||'';
 
     const games=gameLineMatches.map(m=>({
       myTeam:m[1].trim(), oppTeam:m[2].trim(),
