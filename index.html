@@ -1698,12 +1698,19 @@ function adminLogin(){
     // Success
     S.currentUser={id:'__admin__',name:'Admin',email:'',color:'#ffb020',isAdmin:true};
     save();
+    // Show main app
     const lp=document.getElementById('loginPage');
     if(lp)lp.style.display='none';
     const ma=document.getElementById('mainApp');
     if(ma)ma.style.display='block';
     const bn=document.getElementById('bottomNav');
     if(bn)bn.style.display='flex';
+    // Show admin-specific nav items
+    const adminTab=document.getElementById('adminTab');
+    if(adminTab)adminTab.style.display='';
+    const bnAdmin=document.getElementById('bn-admin');
+    if(bnAdmin)bnAdmin.style.display='flex';
+    // Go straight to admin page
     showPage('admin');
     renderAdmin();
     updateBadge();
@@ -2206,8 +2213,13 @@ async function initApp(){
   else{av.textContent=ini(u.name);av.style.background=u.color||'#00e5a0';av.style.color='#000';}
   document.getElementById('youDisplay').value=u.name;
   document.getElementById('gameDate').value=tstr();
-  document.getElementById('adminTab').style.display=isAdmin()?'':'none';
-  document.getElementById('adminBadge').style.display=isAdmin()?'':'none';
+  // Admin tab visibility
+  const adminTab=document.getElementById('adminTab');
+  const adminBadge=document.getElementById('adminBadge');
+  const bnAdmin=document.getElementById('bn-admin');
+  if(adminTab)adminTab.style.display=isAdmin()?'':'none';
+  if(adminBadge)adminBadge.style.display='none'; // badge managed by updateBadge
+  if(bnAdmin)bnAdmin.style.display=isAdmin()?'flex':'none';
 
   // Show bottom nav, admin button
   document.getElementById('bottomNav').style.display='';
@@ -4172,22 +4184,46 @@ function handleCSVUpload(event){
     const st=document.getElementById('csvUploadStatus');
     let added=0,skipped=0;
     // Skip header row if present
-    const dataLines=lines[0].toLowerCase().startsWith('name')?lines.slice(1):lines;
-    let updated=0;
-    for(const line of dataLines){
-      // Handle quoted CSV fields (e.g. "Smith, John")
-      const parts=[];
-      let cur='',inQuote=false;
+    // Parse header row to get column indices
+    function parseCSVLine(line){
+      const parts=[];let cur='',inQuote=false;
       for(const ch of line+','){
         if(ch==='"'){inQuote=!inQuote;}
         else if(ch===','&&!inQuote){parts.push(cur.trim());cur='';}
         else cur+=ch;
       }
-      const name=parts[0]||'';
-      const email=(parts[1]||'').toLowerCase().trim();
-      const phone=parts[2]||'';
-      const nickname=parts[3]||'';
-      const role=(parts[4]||'').toLowerCase();
+      return parts;
+    }
+    // Detect header row
+    const firstLineLower=lines[0].toLowerCase();
+    const hasHeader=firstLineLower.startsWith('name')||firstLineLower.includes('email')||firstLineLower.includes('nickname');
+    const headerParts=hasHeader?parseCSVLine(lines[0].toLowerCase()):['name','email','phone','nickname','role'];
+    const dataLines=hasHeader?lines.slice(1):lines;
+    // Map column names to indices
+    const col=(name)=>{
+      const variants={
+        name:['name','player','playername'],
+        email:['email','mail','emailid','e-mail'],
+        phone:['phone','mobile','contact','phonenumber'],
+        nickname:['nickname','nick','alias','shortname','displayname'],
+        role:['role','type','access']
+      };
+      const alts=variants[name]||[name];
+      for(let i=0;i<headerParts.length;i++){
+        if(alts.some(a=>headerParts[i].includes(a)))return i;
+      }
+      return{name:0,email:1,phone:2,nickname:3,role:4}[name]??-1;
+    };
+    const nameIdx=col('name'),emailIdx=col('email'),phoneIdx=col('phone'),nickIdx=col('nickname'),roleIdx=col('role');
+    let updated=0;
+    for(const line of dataLines){
+      if(!line.trim())continue;
+      const parts=parseCSVLine(line);
+      const name=(nameIdx>=0?parts[nameIdx]||'':'').trim();
+      const email=(emailIdx>=0?(parts[emailIdx]||''):'').toLowerCase().trim();
+      const phone=(phoneIdx>=0?parts[phoneIdx]||'':'').trim();
+      const nickname=(nickIdx>=0?parts[nickIdx]||'':'').trim();
+      const role=(roleIdx>=0?(parts[roleIdx]||''):'').toLowerCase().trim();
       if(!name)continue;
 
       const existing=S.players.find(p=>p.name.toLowerCase()===name.toLowerCase());
