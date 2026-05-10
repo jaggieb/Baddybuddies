@@ -1468,6 +1468,13 @@ function spawnBg(){
 // ============================================================
 
 async function renderLogin(){
+  // Clear any stale errors and inputs
+  ['loginError','loginSyncStatus','adminLoginError'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.textContent='';
+  });
+  ['pinNameInput','pinInput','adminUserInput','adminPassInput'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
   ensureAdminExists();
   // Remove any Google display name duplicates (e.g. "Jagadish B")
   // that were created before email matching was fixed
@@ -1538,8 +1545,7 @@ async function quickSelectUser(uid){
   // Known device users are trusted — check pending status only
   const p=S.players.find(x=>x.name.toLowerCase()===u.name.toLowerCase());
   if(p&&p.status==='pending'){
-    const errEl=document.getElementById('loginError');
-    if(errEl)errEl.textContent='Your registration is pending admin approval.';
+
     return;
   }
   doLogin(u.name,u.email||'');
@@ -2094,6 +2100,7 @@ function logout(){
   unsubscribeFromFirebase();
   if(window._fbAuth) window._fbSignOut(window._fbAuth).catch(()=>{});
   S.currentUser=null;save();
+  forgetDevicePlayer();
   document.getElementById('mainApp').style.display='none';
   document.getElementById('bottomNav').style.display='none';
   document.getElementById('loginPage').style.display='block';
@@ -3910,27 +3917,6 @@ function renderAdmin(){
   });
   // Pre-fill admin name input with current name
   const ani=document.getElementById('adminNameInput');
-  if(ani&&S.currentUser)ani.value=S.currentUser.name;
-
-  document.getElementById('adminUserList').innerHTML=!allUsers.length?
-    `<div style="color:var(--text2);font-size:13px;">No players yet.</div>`:
-    allUsers.map(({p,adm,self,color,email,effectiveUid})=>`
-      <div class="admin-ur">
-        ${p.photoBase64?`<img src="${p.photoBase64}" style="width:30px;height:30px;border-radius:50%;object-fit:cover;flex-shrink:0;"/>`:
-          `<div class="mini-avatar" style="background:${color};color:#000;">${ini(p.name)}</div>`}
-        <div style="flex:1;min-width:0;">
-          <div style="font-size:13px;font-weight:500;">${p.nickname||p.name}${self?' <span style="color:var(--text3);font-size:11px;">(you)</span>':''}</div>
-          <div style="font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${email||'No email'}</div>
-        </div>
-        ${adm?'<span class="tag tag-w">👑 Admin</span>':'<span class="tag" style="background:var(--surface);color:var(--text2);">Player</span>'}
-        <div style="display:flex;gap:5px;flex-wrap:wrap;">
-          ${!self?(adm?
-            `<button class="btn btn-danger btn-sm" onclick="toggleAdmin('${p.name}',false)">Remove Admin</button>`:
-            `<button class="btn btn-warn btn-sm" onclick="toggleAdmin('${p.name}',true)">Make Admin</button>`)
-          :''}
-          ${!self?`<button class="btn btn-danger btn-sm" onclick="adminDeletePlayer('${p.id}','${p.name.replace(/'/g,"\\'")}')">🗑 Delete</button>`:''}
-        </div>
-      </div>`).join('');
   // Pending corrections
   const pending=S.corrections.filter(c=>c.status==='pending');
   document.getElementById('adminCorrList').innerHTML=!pending.length?
