@@ -772,16 +772,30 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
 
       <div class="admin-section" style="border-color:rgba(77,158,255,0.25);">
         <div class="admin-st" style="color:var(--info);">👥 Player Management</div>
-        <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">Add players individually or upload a list. Share the registration link so players can join.</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
-          <button class="btn btn-primary btn-sm" onclick="openAddPlayerModal()">+ Add Player</button>
-          <button class="btn btn-outline btn-sm" onclick="copyRegisterLink()">🔗 Copy Register Link</button>
+
+        <!-- Quick add single player -->
+        <div style="background:var(--bg2);border-radius:10px;padding:14px;margin-bottom:12px;">
+          <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:10px;">➕ Add New Player</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+            <input type="text" id="quickAddName" placeholder="Full name*" style="font-size:13px;" autocomplete="off"/>
+            <input type="text" id="quickAddNick" placeholder="Nickname (optional)" style="font-size:13px;" autocomplete="off"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <input type="text" id="quickAddPin" placeholder="PIN (4-8 digits)*" inputmode="numeric" maxlength="8" style="font-size:13px;"/>
+            <input type="text" id="quickAddEmail" placeholder="Email (optional)" style="font-size:13px;" autocomplete="off"/>
+          </div>
+          <button onclick="quickAddPlayer()" class="btn btn-primary btn-sm" style="width:100%;">➕ Add Player</button>
+          <div id="quickAddStatus" style="font-size:12px;margin-top:8px;min-height:16px;"></div>
+        </div>
+
+        <!-- CSV upload -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
           <button class="btn btn-outline btn-sm" onclick="document.getElementById('csvUploadInput').click()">📤 Upload CSV</button>
-          <button class="btn btn-outline btn-sm" onclick="downloadPlayerTemplate()">⬇️ Download Template</button>
+          <button class="btn btn-outline btn-sm" onclick="downloadPlayerTemplate()">⬇️ Template</button>
           <input type="file" id="csvUploadInput" accept=".csv,.txt" style="display:none;" onchange="handleCSVUpload(event)"/>
         </div>
-        <div style="font-size:11px;color:var(--text3);">CSV columns: Name, Email, Phone, Nickname — header row included in template.</div>
-        <div id="csvUploadStatus" style="font-size:12px;margin-top:8px;"></div>
+        <div style="font-size:10px;color:var(--text3);">CSV columns: Name, Nickname, PIN, Email, Phone (header row required)</div>
+        <div id="csvUploadStatus" style="font-size:12px;margin-top:6px;"></div>
       </div>
 
       <div class="admin-section" style="border-color:rgba(0,229,160,0.25);">
@@ -789,7 +803,6 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
           <div class="admin-st" style="color:var(--accent);margin-bottom:0;">✅ Pending Approvals</div>
           <button class="btn btn-outline btn-sm" onclick="manualAdminSync()" id="adminSyncBtn" style="font-size:11px;">🔄 Refresh</button>
         </div>
-        <p style="font-size:12px;color:var(--text2);margin-bottom:12px;">New users waiting for access. Auto-refreshes every 30 seconds.</p>
         <div id="pendingApprovalsList"><div style="color:var(--text2);font-size:13px;">No pending approvals ✅</div></div>
       </div>
 
@@ -1756,7 +1769,15 @@ async function pinLogin(){
     x.name.toLowerCase()===nl||(x.nickname||'').toLowerCase()===nl
   );
   if(!p){
-    errEl.textContent='Player "'+name+'" not found. Check spelling or ask your admin.';return;
+    // Try partial match to give helpful suggestion
+    const suggestion=S.players.find(x=>
+      x.name.toLowerCase().startsWith(nl[0])||
+      (x.nickname||'').toLowerCase().startsWith(nl[0])
+    );
+    errEl.innerHTML='Player <b>'+name+'</b> not found.'+(suggestion?
+      '<br><small style="color:var(--text3)">Did you mean <b>'+(suggestion.nickname||suggestion.name)+'</b>?</small>':
+      '<br><small style="color:var(--text3)">Ask admin to add you via Player Management.</small>');
+    return;
   }
 
 
@@ -3607,7 +3628,7 @@ function renderPlayers(){
     const avatarHtml=p.photoBase64?
       `<img src="${p.photoBase64}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;margin:0 auto 9px;display:block;"/>`:
       `<div class="avatar-lg" style="background:${col};color:#000;">${ini(p.name)}</div>`;
-    return `<div class="player-card" style="cursor:${canEdit?'pointer':'default'};" onclick="${canEdit?`openEditPlayer('${p.id}')`:''}" title="${canEdit?'Click to edit':''}">
+    return `<div class="player-card" style="cursor:default;">
       ${isAdm?'<div style="position:absolute;top:7px;left:7px;font-size:13px;" title="Admin">👑</div>':''}
       ${isAdmin()?`<button style="position:absolute;top:7px;right:7px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;" onclick="event.stopPropagation();delPlayer('${p.id}')">×</button>`:''}
       ${avatarHtml}
@@ -4176,6 +4197,68 @@ function downloadPlayerTemplate(){
 }
 
 // ── CSV bulk upload ──
+async function adminResetPin(pid){
+  const p=S.players.find(x=>x.id===pid);
+  if(!p)return;
+  const newPin=prompt('Set a new temporary PIN for '+(p.nickname||p.name)+' (4-8 digits):');
+  if(!newPin)return;
+  if(!/^[0-9]{4,8}$/.test(newPin.trim())){
+    alert('PIN must be 4-8 digits only.');return;
+  }
+  p.pin=newPin.trim();
+  p.pinIsTemp=true;
+  save();
+  const r=await ghWriteAll();
+  if(r&&r.success){
+    alert('PIN reset for '+(p.nickname||p.name)+'. New temp PIN: '+newPin.trim()+'. Share with player.');
+  } else {
+    alert('PIN reset locally. Firebase sync failed — try pushing data manually.');
+  }
+  renderPlayers();
+}
+
+async function quickAddPlayer(){
+  const name=(document.getElementById('quickAddName')?.value||'').trim();
+  const nick=(document.getElementById('quickAddNick')?.value||'').trim();
+  const pin=(document.getElementById('quickAddPin')?.value||'').trim();
+  const email=(document.getElementById('quickAddEmail')?.value||'').toLowerCase().trim();
+  const st=document.getElementById('quickAddStatus');
+
+  if(!name){if(st)st.innerHTML='<span style="color:var(--danger)">Name is required.</span>';return;}
+  if(!pin||!/^[0-9]{4,8}$/.test(pin)){if(st)st.innerHTML='<span style="color:var(--danger)">PIN must be 4-8 digits.</span>';return;}
+
+  // Check duplicate
+  if(S.players.find(p=>p.name.toLowerCase()===name.toLowerCase())){
+    if(st)st.innerHTML='<span style="color:var(--warn)">Player "'+name+'" already exists.</span>';return;
+  }
+
+  const cols=['#00e5a0','#4d9eff','#ff6b6b','#ffb020','#c77dff','#ff9a3c','#46d9d9','#f06292','#aed581'];
+  const player={
+    id:'p_'+Date.now(),
+    name,nickname:nick,email,phone:'',
+    pin,pinIsTemp:true,  // admin-set PIN is always temporary
+    color:cols[S.players.length%cols.length],
+    userId:'',photoBase64:null,status:'approved'
+  };
+  S.players.push(player);
+  save();
+
+  if(st)st.innerHTML='<span style="color:var(--text2)">Saving...</span>';
+  const r=await ghWriteAll();
+  if(r&&r.success){
+    if(st)st.innerHTML='<span style="color:var(--accent)">✅ '+name+' added! Temp PIN: <b>'+pin+'</b> — share this with the player</span>';
+  } else {
+    if(st)st.innerHTML='<span style="color:var(--warn)">Added locally. Firebase save failed: '+(r?.error||'unknown')+'</span>';
+  }
+
+  // Clear form
+  ['quickAddName','quickAddNick','quickAddPin','quickAddEmail'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  renderPlayers();initForm();populateHF();populateLoginDropdown();
+  renderAdmin();
+}
+
 function handleCSVUpload(event){
   const file=event.target.files[0];if(!file)return;
   const reader=new FileReader();
@@ -4224,7 +4307,6 @@ function handleCSVUpload(event){
       const email=(emailIdx>=0?(parts[emailIdx]||''):'').toLowerCase().trim();
       const phone=(phoneIdx>=0?parts[phoneIdx]||'':'').trim();
       const nickname=(nickIdx>=0?parts[nickIdx]||'':'').trim();
-      const role=(roleIdx>=0?(parts[roleIdx]||''):'').toLowerCase().trim();
       if(!name)continue;
 
       const existing=S.players.find(p=>p.name.toLowerCase()===name.toLowerCase());
@@ -4234,10 +4316,7 @@ function handleCSVUpload(event){
         if(email&&existing.email!==email){existing.email=email;changed=true;}
         if(phone&&existing.phone!==phone){existing.phone=phone;changed=true;}
         if(nickname&&existing.nickname!==nickname){existing.nickname=nickname;changed=true;}
-        if(role==='admin'&&!isPlayerAdmin(existing)){
-          if(!S.adminNames)S.adminNames=[];
-          S.adminNames.push(existing.name.toLowerCase());changed=true;
-        }
+
         if(changed)updated++;
         skipped++;
         continue;
@@ -4246,14 +4325,12 @@ function handleCSVUpload(event){
       const player={
         id:'p_'+Date.now()+'_'+added,
         name,email,phone,nickname,
+        pin:(nickIdx>=0?parts[col('pin')]||'':'').trim(),
+        pinIsTemp:true,  // admin-set PIN is always temporary
         status:'approved',
         color:cols[S.players.length%cols.length],
-        pin:'',photoBase64:null
+        photoBase64:null
       };
-      if(role==='admin'){
-        if(!S.adminNames)S.adminNames=[];
-        S.adminNames.push(name.toLowerCase());
-      }
       S.players.push(player);
       added++;
     }
