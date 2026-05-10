@@ -3615,7 +3615,7 @@ function renderPlayers(){
     const avatarHtml=p.photoBase64?
       `<img src="${p.photoBase64}" style="width:52px;height:52px;border-radius:50%;object-fit:cover;margin:0 auto 9px;display:block;"/>`:
       `<div class="avatar-lg" style="background:${col};color:#000;">${ini(p.name)}</div>`;
-    return `<div class="player-card" style="cursor:default;">
+    return `<div class="player-card" style="${canEdit?'cursor:pointer;':''}" ${canEdit?`onclick="openEditPlayer('${p.id}')"`:''}>
       ${isAdm?'<div style="position:absolute;top:7px;left:7px;font-size:13px;" title="Admin">👑</div>':''}
       ${isAdmin()?`<button style="position:absolute;top:7px;right:7px;background:none;border:none;color:var(--text3);cursor:pointer;font-size:13px;" onclick="event.stopPropagation();delPlayer('${p.id}')">×</button>`:''}
       ${avatarHtml}
@@ -3685,7 +3685,8 @@ function openAddPlayerModal(){
 }
 
 function openEditPlayer(pid){
-  const p=S.players.find(x=>x.id===pid);if(!p)return;
+  const p=S.players.find(x=>x.id===pid);
+  if(!p){alert('Player not found. Try syncing data first.');return;}
   if(!isAdmin()){
     const mp=myPlayer();
     if(!mp||mp.id!==p.id)return;
