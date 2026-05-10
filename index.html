@@ -798,27 +798,9 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
         <div id="csvUploadStatus" style="font-size:12px;margin-top:6px;"></div>
       </div>
 
-      <div class="admin-section" style="border-color:rgba(0,229,160,0.25);">
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
-          <div class="admin-st" style="color:var(--accent);margin-bottom:0;">✅ Pending Approvals</div>
-          <button class="btn btn-outline btn-sm" onclick="manualAdminSync()" id="adminSyncBtn" style="font-size:11px;">🔄 Refresh</button>
-        </div>
-        <div id="pendingApprovalsList"><div style="color:var(--text2);font-size:13px;">No pending approvals ✅</div></div>
-      </div>
 
-      <div class="admin-section">
-        <div class="admin-st">👑 Administrators</div>
-        <p style="font-size:12px;color:var(--text2);margin-bottom:14px;">Admins approve corrections, delete games, manage players, and configure settings.</p>
-        <div id="adminUserList"></div>
-        <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border);">
-          <div style="font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">✏️ Edit Your Admin Name</div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <input type="text" id="adminNameInput" placeholder="New name…" style="flex:1;font-size:13px;" />
-            <button class="btn btn-warn btn-sm" onclick="updateAdminName()">Update Name</button>
-          </div>
-          <div id="adminNameStatus" style="font-size:12px;margin-top:6px;"></div>
-        </div>
-      </div>
+
+div>
 
       <div class="admin-section">
         <div class="admin-st">⚠ Pending Corrections</div>
@@ -1467,10 +1449,7 @@ document.addEventListener('DOMContentLoaded',()=>{
 
 // Check for registration link
 const _urlParams=new URLSearchParams(window.location.search);
-if(_urlParams.get('register')==='1'){
-  renderLogin();
-  setTimeout(()=>openSelfRegister(),400);
-}else if(S.currentUser){
+if(S.currentUser){
   initApp();
 }else{
   renderLogin();
@@ -2227,8 +2206,14 @@ async function initApp(){
   });
   const u=S.currentUser;
   // Show nickname in header (display only — identity stays as stored name)
-  const hp=S.currentUser.id==='__admin__'?null:S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
-  document.getElementById('headerName').textContent=S.currentUser.id==='__admin__'?'Admin':(hp&&hp.nickname)||hp?.name||u.name;
+  let displayN;
+  if(S.currentUser.id==='__admin__'){
+    displayN='⚙️ Admin';
+  } else {
+    const hp=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase());
+    displayN=(hp&&hp.nickname)||hp?.name||u.name;
+  }
+  document.getElementById('headerName').textContent=displayN;
   const mp2=S.players.find(p=>p.name.toLowerCase()===u.name.toLowerCase()||p.userId===u.id);
   const av=document.getElementById('headerAvatar');
   if(mp2&&mp2.photoBase64){av.innerHTML=`<img src="${mp2.photoBase64}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`;av.style.background='none';}
@@ -3699,10 +3684,11 @@ function openAddPlayerModal(){
 
 function openEditPlayer(pid){
   const p=S.players.find(x=>x.id===pid);if(!p)return;
-  const mp=myPlayer(),myPid=mp?mp.id:null;
-  const canEdit=isAdmin()||(myPid===p.id);
-  if(!canEdit)return;
-  if(!isAdmin()){openSelfEdit(pid);return;}
+  if(!isAdmin()){
+    const mp=myPlayer();
+    if(!mp||mp.id!==p.id)return;
+    openSelfEdit(pid);return;
+  }
   _pendingPhotoBase64='';
   document.getElementById('editPlayerId').value=pid;
   document.getElementById('playerModalTitle').textContent='Edit Player';
@@ -3896,29 +3882,7 @@ function renderAdmin(){
   if(!isAdmin())return;
   // Pending approvals
   const pendingPlayers=S.players.filter(p=>p.status==='pending');
-  const palEl=document.getElementById('pendingApprovalsList');
-  if(palEl){
-    if(!pendingPlayers.length){
-      palEl.innerHTML='<div style="color:var(--text2);font-size:13px;">No pending approvals ✅</div>';
-    }else{
-      palEl.innerHTML=pendingPlayers.map(p=>`
-        <div style="display:flex;align-items:center;gap:10px;padding:12px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
-          <div style="width:36px;height:36px;border-radius:50%;background:${p.color||'#4d9eff'};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;color:#000;flex-shrink:0;">${ini(p.name)}</div>
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:13px;font-weight:600;">${p.name}</div>
-            <div style="font-size:11px;color:var(--text2);">${p.email||'No email'}${p.phone?' · '+p.phone:''}</div>
-            <div style="font-size:10px;color:var(--text3);">Registered · waiting for approval</div>
-          </div>
-          <div style="display:flex;gap:6px;">
-            <button class="btn btn-primary btn-sm" onclick="approveUser('${p.id}')">✅ Approve</button>
-            <button class="btn btn-danger btn-sm" onclick="rejectUser('${p.id}','${p.name.replace(/'/g,"\\'")}')">✗ Reject</button>
-          </div>
-        </div>`).join('');
-    }
-    // Update badge
-    const corrBadgeCount=S.corrections.filter(x=>x.status==='pending').length+pendingPlayers.length;
-    updateBadge(corrBadgeCount);
-  }
+
 
   // Users — ensure current user is always visible in admin panel
   const allPlayers=[...S.players];
