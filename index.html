@@ -798,9 +798,11 @@ textarea{resize:vertical;min-height:80px;line-height:1.6;}
         <div id="csvUploadStatus" style="font-size:12px;margin-top:6px;"></div>
       </div>
 
-
-
-div>
+      <!-- Player list with Edit buttons -->
+      <div class="admin-section" style="border-color:rgba(77,158,255,0.15);">
+        <div class="admin-st" style="color:var(--info);">📋 Edit Players</div>
+        <div id="adminPlayerList"></div>
+      </div>
 
       <div class="admin-section">
         <div class="admin-st">⚠ Pending Corrections</div>
@@ -3908,6 +3910,25 @@ function renderAdmin(){
     const effectiveUid=ku?ku.id:uid;
     return {p,adm,self,color,email,effectiveUid};
   });
+  // Render editable player list
+  const adminPlayerListEl=document.getElementById('adminPlayerList');
+  if(adminPlayerListEl){
+    if(!allUsers.length){
+      adminPlayerListEl.innerHTML='<div style="color:var(--text2);font-size:13px;">No players yet.</div>';
+    } else {
+      adminPlayerListEl.innerHTML=allUsers.map(({p,adm,self,color,email,effectiveUid})=>`
+        <div class="admin-ur">
+          <div style="width:34px;height:34px;border-radius:50%;background:${color};display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#000;flex-shrink:0;">${p.photoBase64?`<img src="${p.photoBase64}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;"/>`:ini(p.name)}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:13px;font-weight:600;">${p.name}${p.nickname?` <span style="font-size:11px;color:var(--text3);">(${p.nickname})</span>`:''}</div>
+            <div style="font-size:11px;color:var(--text3);">${email||'No email'}${adm?' · <span style="color:var(--warn);">Admin</span>':''}</div>
+          </div>
+          <button class="btn btn-outline btn-sm" onclick="openEditPlayer('${p.id}')">✏️ Edit</button>
+          <button class="btn btn-sm" style="background:${adm?'rgba(255,77,109,0.12)':'rgba(255,176,32,0.1)'};color:${adm?'var(--danger)':'var(--warn)'};border:1px solid ${adm?'rgba(255,77,109,0.3)':'rgba(255,176,32,0.3)'};" onclick="toggleAdmin('${p.name.replace(/'/g,"\\'")}',${!adm})">${adm?'Remove Admin':'Make Admin'}</button>
+        </div>`).join('');
+    }
+  }
+
   // Pre-fill admin name input with current name
   const ani=document.getElementById('adminNameInput');
   // Pending corrections
