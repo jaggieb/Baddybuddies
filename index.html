@@ -1468,13 +1468,6 @@ function spawnBg(){
 // ============================================================
 
 async function renderLogin(){
-  // Clear any stale errors and inputs
-  ['loginError','loginSyncStatus','adminLoginError'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.textContent='';
-  });
-  ['pinNameInput','pinInput','adminUserInput','adminPassInput'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.value='';
-  });
   ensureAdminExists();
   // Remove any Google display name duplicates (e.g. "Jagadish B")
   // that were created before email matching was fixed
@@ -1545,7 +1538,8 @@ async function quickSelectUser(uid){
   // Known device users are trusted — check pending status only
   const p=S.players.find(x=>x.name.toLowerCase()===u.name.toLowerCase());
   if(p&&p.status==='pending'){
-
+    const errEl=document.getElementById('loginError');
+    if(errEl)errEl.textContent='Your registration is pending admin approval.';
     return;
   }
   doLogin(u.name,u.email||'');
@@ -2100,7 +2094,6 @@ function logout(){
   unsubscribeFromFirebase();
   if(window._fbAuth) window._fbSignOut(window._fbAuth).catch(()=>{});
   S.currentUser=null;save();
-  forgetDevicePlayer();
   document.getElementById('mainApp').style.display='none';
   document.getElementById('bottomNav').style.display='none';
   document.getElementById('loginPage').style.display='block';
